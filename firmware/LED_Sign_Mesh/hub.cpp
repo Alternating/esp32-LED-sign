@@ -57,8 +57,8 @@ static char     renderedChar = 0;
 static uint32_t lastPeriodicAt = 0;
 static volatile uint8_t  burstLeft = 0;
 static volatile uint32_t burstNextAt = 0;
-static uint8_t  resetLeft = 0;
-static uint32_t resetNextAt = 0;
+static volatile uint8_t  resetLeft = 0;      // onResetOrd may run on core 0 (web) or core 1 (serial/button)
+static volatile uint32_t resetNextAt = 0;
 static uint32_t statusLedAt = 0;
 
 // ---------------- helpers ----------------
