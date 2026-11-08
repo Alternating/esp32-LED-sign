@@ -3,11 +3,12 @@
 Tracking file per project rules. Newest log entries at top.
 
 ## Status
-- **Phase:** 0 — Bench test, pending owner review of `docs/PROJECT_PLAN.md` (Human Gate)
+- **Phase:** 0 — Bench test: radio link PASSED; flicker/phone/range checks pending. Then Phase 1.
 - **Active agent:** Orchestrator (Claude session 2026-11-08); research + planning agents on Standby
 - **Blocker cleared:** `character_patterns.h` extended to 68 glyphs; ready for Phase 0.
 
 ## Log
+- 2026-11-08 — **Phase 0 radio test PASSED** on two LOLIN32s (`firmware/bench/espnow_ping`): hub in AP_STA with SoftAP on ch 6 + ESP-NOW broadcast @ 5 Hz, node STA replying unicast. 248/248 pings, 0.0 % loss, RTT 3/6.5/25 ms, RSSI −33 dBm, heaps flat. Confirms the AP+ESP-NOW same-channel design and the core 3.3.12 ESP-NOW callback API (`wifi_tx_info_t`, `esp_now_recv_info_t`). Second board MAC 78:E3:6D:19:18:38. Remaining Phase 0 items: visual flicker check, phone-on-AP during ping, 5 m range.
 - 2026-11-08 — **First hardware run.** Toolchain installed on the Qwen box (arduino-cli 1.5.1, esp32 core 3.3.12 / IDF 5.5.5, FastLED 3.10.9, ArduinoJson 7.4.3); LOLIN32 on /dev/ttyUSB0, MAC 9C:9C:1F:E3:C6:8C. `firmware/bench/font_test` compiled, flashed, verified over serial: 517 kB sketch, 296 kB free heap, `FastLED.show()` 13.7 ms/400 LEDs. New glyphs cycling on the matrix.
 - 2026-11-08 — **Drift (Framework Improvement Trigger):** FastLED ≥ 3.10 on IDF 5.x has removed the RMT4 backend — `#define FASTLED_RMT5 0` is a hard `#error`. Plan §5.3's primary flicker mitigation is invalid. Replacement options: RMT5 default (test empirically in Phase 0), `FASTLED_ESP32_I2S`, or pin FastLED 3.9.x. Also: LOLIN32 FQBN has no `huge_app` partition — use `PartitionScheme=no_ota` (2.6 MB app). Fix: pin library versions at Phase 0 and verify every build flag on hardware before writing it into the plan.
 - 2026-11-08 — GitHub repo `Alternating/esp32-LED-sign` created; local commits ready. Push blocked until the Claude GitHub App is granted access to the repo.

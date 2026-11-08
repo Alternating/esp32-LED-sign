@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Reset the ESP32 via DTR/RTS and capture serial output for N seconds.
-Usage: serial_capture.py [port] [seconds] [keys-to-send-after-5s]
+Usage: serial_capture.py [port] [seconds] [keys-to-send-after-1s]
 """
 import sys, time
 import serial
@@ -17,6 +17,6 @@ while time.time() - t0 < secs:
     line = s.readline()
     if line:
         print(line.decode(errors="replace").rstrip(), flush=True)
-    if keys and not sent and time.time() - t0 > 5:
+    if keys and not sent and time.time() - t0 > 1.0:
         s.write(keys.encode()); sent = True
 s.close()
