@@ -190,7 +190,8 @@ void onClaim() {
   Hdr h = makeHdr(CLAIM, 0, POS_HUB);
   radio::send(radio::BCAST, &h, sizeof(h), false);
   Serial.println("[NODE] CLAIM sent");
-  setState(NodeState::DISCOVER);                    // DISCOVER's HELLO loop takes over
+  setState(NodeState::DISCOVER);                    // DISCOVER's HELLO loop takes over...
+  nextHelloAt = millis() + HELLO_INTERVAL;          // ...after giving the CLAIM's ASSIGN a chance to land
 }
 
 void onForget() {
