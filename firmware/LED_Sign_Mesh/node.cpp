@@ -180,6 +180,8 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
     case IDENTIFY:
       if (len >= sizeof(Identify)) {
         const Identify* id = (const Identify*)buf;
+        if (h->flags & FLAG_NEEDS_ACK) { learnHub(srcMac); sendAck(IDENTIFY, h->seq); }   // unicast identify (D1)
+        if (display::identifyActive() && (h->flags & FLAG_NEEDS_ACK)) break;             // retry of one we already started
         display::identifyStart(id->ms);
         Serial.printf("[NODE] IDENTIFY %u ms\n", id->ms);
       }
@@ -193,6 +195,7 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
       }
       break;
     case FORGET:                                      // hub dropped our row (web/serial `forget`)
+      if (h->flags & FLAG_NEEDS_ACK) { learnHub(srcMac); sendAck(FORGET, h->seq); }      // ACK even when already UNASSIGNED (D1 retries)
       if (myPos && h->dstPos == myPos) {
         Serial.printf("[NODE] FORGET from hub (pos %d): clearing NVS pos -> UNASSIGNED\n", myPos);
         savePos(0);

@@ -318,7 +318,7 @@ bool identifyPos(uint8_t pos, uint16_t ms) {
   Identify id;
   id.h = makeHdr(IDENTIFY, MY_POS, pos);
   id.ms = ms;
-  radio::send(mac, &id, sizeof(id), false);
+  radio::send(mac, &id, sizeof(id), true);    // D1: unicast with ACK/retry
   char ms18[18]; radio::macToStr(mac, ms18);
   Serial.printf("[HUB] IDENTIFY pos %d (%s) %u ms\n", pos, ms18, ms);
   return true;
@@ -338,7 +338,7 @@ bool forgetPos(uint8_t pos) {
   portEXIT_CRITICAL(&tMux);
   if (!found) return false;
   Hdr h = makeHdr(FORGET, MY_POS, pos);
-  radio::send(mac, &h, sizeof(h), false);
+  radio::send(mac, &h, sizeof(h), true);      // D1: a lost FORGET would undo itself at the node's next boot
   persistTable();
   char ms18[18]; radio::macToStr(mac, ms18);
   Serial.printf("[HUB] forget pos %d (%s): row removed, FORGET sent\n", pos, ms18);
