@@ -286,12 +286,12 @@ Radio init order: Wi-Fi mode -> `setSleep(false)` -> channel -> `esp_now_init` -
 
 | Item | Choice |
 |---|---|
-| Arduino-ESP32 core | 3.x, pinned to one exact version in the README at Phase 0 (expected 3.2.x or 3.3.x; `esp_now_recv_info_t` RX callback signature). Record `Tools > Board` = "ESP32 Dev Module". |
-| FastLED | 3.9.x or later, with `#define FASTLED_RMT5 0` before the include (RMT4 path, maintainer-recommended for Wi-Fi jitter). Fallback flag `FASTLED_ESP32_I2S` if flicker persists. `setMaxRefreshRate(0)`, `show()` paced at ~60 Hz from the loop only. |
+| Arduino-ESP32 core | **3.3.12 / IDF 5.5.5 (verified 2026-11-08).** FQBN `esp32:esp32:lolin32`. `esp_now_recv_info_t` RX callback signature. |
+| FastLED | **3.10.9 (verified 2026-11-08).** `FASTLED_RMT5 0` is NOT available on IDF 5.x (hard #error) — run the RMT5 default and test flicker with radios on in Phase 0; fallback `FASTLED_ESP32_I2S 1`, or pin 3.9.x. `setMaxRefreshRate(0)`, `show()` paced at ~60 Hz from the loop only. Measured `show()` = 13.7 ms/400 LEDs. |
 | ArduinoJson | 7.x |
 | Preferences, WiFi, WebServer, DNSServer, esp_now.h, esp_wifi.h | bundled with the core |
 | NimBLE-Arduino | 2.3.x (Phase 3 only, behind `ENABLE_BLE`) |
-| Partition scheme | "Huge APP (3 MB No OTA / 1 MB SPIFFS)" for Phases 0-3. Phase 4 OTA switches to "Minimal SPIFFS (1.9 MB APP with OTA)". |
+| Partition scheme | LOLIN32 offers `default | no_ota | min_spiffs` only. Use `PartitionScheme=no_ota` (2.6 MB app) for Phases 0-2; Phase 4 OTA switches to `min_spiffs`. |
 | CPU / flash | 240 MHz, QIO 80 MHz, 4 MB. Core debug level: Info during bring-up. |
 
 ### 5.4 Core pinning and flicker mitigation

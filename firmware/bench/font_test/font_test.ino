@@ -10,13 +10,15 @@
  *
  * Serial: 115200. Send 'n' to skip to the next glyph, 'm' to toggle mirror, 'p' to pause/resume.
  */
-#define FASTLED_RMT5 0          // plan §5.3: use RMT4 path on core 3.x
+// NOTE: FastLED >= 3.10 on IDF 5.x has NO RMT4 fallback (FASTLED_RMT5 0 is a hard #error).
+// Using the RMT5 default. If flicker appears with radios on: try #define FASTLED_ESP32_I2S 1, or pin FastLED 3.9.x.
 #include <FastLED.h>
 #include <WiFi.h>
 #include "esp_wifi.h"
 #include "esp_bt.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
+#include "esp_mac.h"
 #include "character_patterns.h"
 
 #define LEDS_PER_BOARD  400

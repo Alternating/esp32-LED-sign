@@ -8,6 +8,9 @@ Tracking file per project rules. Newest log entries at top.
 - **Blocker cleared:** `character_patterns.h` extended to 68 glyphs; ready for Phase 0.
 
 ## Log
+- 2026-11-08 — **First hardware run.** Toolchain installed on the Qwen box (arduino-cli 1.5.1, esp32 core 3.3.12 / IDF 5.5.5, FastLED 3.10.9, ArduinoJson 7.4.3); LOLIN32 on /dev/ttyUSB0, MAC 9C:9C:1F:E3:C6:8C. `firmware/bench/font_test` compiled, flashed, verified over serial: 517 kB sketch, 296 kB free heap, `FastLED.show()` 13.7 ms/400 LEDs. New glyphs cycling on the matrix.
+- 2026-11-08 — **Drift (Framework Improvement Trigger):** FastLED ≥ 3.10 on IDF 5.x has removed the RMT4 backend — `#define FASTLED_RMT5 0` is a hard `#error`. Plan §5.3's primary flicker mitigation is invalid. Replacement options: RMT5 default (test empirically in Phase 0), `FASTLED_ESP32_I2S`, or pin FastLED 3.9.x. Also: LOLIN32 FQBN has no `huge_app` partition — use `PartitionScheme=no_ota` (2.6 MB app). Fix: pin library versions at Phase 0 and verify every build flag on hardware before writing it into the plan.
+- 2026-11-08 — GitHub repo `Alternating/esp32-LED-sign` created; local commits ready. Push blocked until the Claude GitHub App is granted access to the repo.
 - 2026-11-08 — Font agent done. `firmware/legacy/character_patterns.h` extended 47 → 68 glyphs (adds `? ! " : & $ # + . , ' - / @ % ( ) =`, code 13 HAPPY, 14 SAD, 15 TEN). Originals byte-identical; one dead branch removed. Legacy sketches compile unchanged. Original kept as `character_patterns_v1_original.h`. Tools in `tools/fonts/`, previews + changelog in `docs/fonts/`. RAM 27.2 kB (PROGMEM deferred).
 - 2026-11-08 — Owner feedback: board is **LOLIN32**; control via **Wi-Fi AP**, boards talk over **ESP-NOW**; BLE deferred (Phase 3 marked optional). Original `character_patterns.h` and `Led_standalone_lolin32.ino` added to `firmware/legacy/`. Font agent launched to audit the header and add `? ! " : & $ # +`, smiley/frown (codes 13/14) and a "10" glyph.
 - 2026-11-08 — `docs/PROJECT_PLAN.md` written (architecture, boot/numbering state machines, ESP-NOW protocol, firmware layout, phased roadmap with acceptance tests, risks, open questions, framework notes). Awaiting owner review.
@@ -19,7 +22,7 @@ Tracking file per project rules. Newest log entries at top.
 2. Hub/node role = NVS flag toggled by holding K4 at power-on (shows H/N). No auto-election.
 3. Positions sticky by MAC in hub NVS; hub K3 long-press = RESET ORDER, then re-power boards in desired order.
 4. One 40-byte `Show` broadcast carries full display state; repeated at 2 Hz as heartbeat + clock.
-5. Raw `esp_now.h`, FastLED with `FASTLED_RMT5 0`, ArduinoJson 7, Huge APP partition, Arduino-ESP32 core 3.x pinned at Phase 0. Fixed ESP-NOW channel 6.
+5. Raw `esp_now.h`, FastLED 3.10.9 on RMT5 (RMT4 no longer exists — see drift log), ArduinoJson 7.4.3, `no_ota` partition, Arduino-ESP32 core **3.3.12** pinned. Fixed ESP-NOW channel 6.
 6. Battery sense: 100k/47k divider → GPIO 34, per-board calibration via app.
 
 ## Open Questions (for Tyler)
