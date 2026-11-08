@@ -469,7 +469,7 @@ void tick() {
   if (resetLeft && (int32_t)(now - resetNextAt) >= 0) {
     Hdr h = makeHdr(RESETORD, MY_POS, POS_ALL);
     radio::send(radio::BCAST, &h, sizeof(h), false);
-    resetLeft--;
+    resetLeft = resetLeft - 1;
     resetNextAt = now + RESET_ORD_GAP;
   }
 
