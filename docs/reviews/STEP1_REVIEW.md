@@ -131,3 +131,64 @@ Severity: **blocking** = will not compile or defeats A1/A2 outright; **major** =
 - `netTask` pinned to core 0, priority 1, 8192 stack, `delay(5)`; `radio::pump()` called from it only.
 - Serial command letter set `r i t s m c` and the `[HUB] ASSIGN <MAC> -> pos N (new|known)` log format.
 - `hub::setTestString()` padding logic; Show `numBoards = nextPos - 1`.
+
+## Refactor disposition
+
+Refactor agent, 2026-11-08. The draft was rewritten file by file into `firmware/LED_Sign_Mesh/` (clean rewrite of every .cpp/.ino; `protocol.h`, pin map/timings in `config.h`, the storage API and the namespace layout were kept per "Keep as-is"). Build: `arduino-cli compile --warnings all --fqbn esp32:esp32:lolin32:PartitionScheme=no_ota` → 0 errors, 0 warnings, **983183 B flash (46 %), 51912 B RAM (15 %)**. Not flashed; verification agent owns A2–A7.
+
+| ID | Disposition | Note |
+|---|---|---|
+| S1-01 | fixed | `FASTLED_RMT5` line removed. |
+| S1-02 | fixed | `fill_solid()` via `display::fill()`. |
+| S1-03 | fixed | node `tick()` rewritten: `now` hoisted, braced cases, file-scope `nextHelloAt`. |
+| S1-04 | fixed | `radio::BCAST[6]` constant, no compound literals anywhere. |
+| S1-05 | fixed | `character_patterns.h` included only from `display.cpp`; `display.h` exposes `CRGB` via `<FastLED.h>` only. |
+| S1-06 | fixed | every `Preferences::begin(ns, false)`. |
+| S1-07 | fixed | `loadTable` memsets, checks `getBytesLength()` equals the expected blob size. |
+| S1-08 | fixed | `display::begin()`/`bootAnimation()` only in `setup()`. |
+| S1-09 | fixed | `radio::setHandler()`; `pump()` dispatches `(srcMac, buf, len, rssi)`. |
+| S1-10 | fixed | `radio::send()` stamps `h.seq = ++txSeq`; dedupe is a `lastSeq[MAX_BOARDS+1]` MAC table. Frames with `needsAck` bypass dedupe so a retried ASSIGN is re-ACKed when the first ACK was lost (interpretation). |
+| S1-11 | fixed | `radio::ackReceived(mac, seq)` frees the matching queue item; 5× @ 200 ms then `[RADIO] give up`; `isRetry` flag set on retransmits; `onSent` only sets flags, `pump()` resolves the in-flight item. |
+| S1-12 | fixed | every send goes through the queue; one frame in flight gated by `sendBusy`; `esp_now_send` only from `pump()`. Queue is a 16-slot set, oldest eligible first, so a waiting ASSIGN retry does not block the periodic Show. |
+| S1-13 | fixed | hub `addPeer` on HELLO/CLAIM (idempotent via `esp_now_is_peer_exist`); node learns the hub MAC on first ASSIGN or Show. Broadcast peer added on both roles. |
+| S1-14 | fixed | `MAX_FRAME 64`, `static_assert(sizeof(Show) <= MAX_FRAME)`; ring 16 × 72 B, queue 16 × ~90 B. |
+| S1-15 | fixed | channel/esp_now_init/broadcast-peer/MAC log lines as in the bench sketch; `begin*()` return `bool`. |
+| S1-16 | fixed | all radio internals `static` in the .cpp. |
+| S1-17 | fixed | `RESETORD` is its own 8-byte message, 5× / 200 ms via `resetLeft`/`resetNextAt` in `hub::tick()`; RAM + NVS table cleared. |
+| S1-18 | fixed | `HubState {BOOT, SHOW_POSITION, RUNNING}`, non-blocking 3 s, logs `[HUB] SHOW_POSITION -> RUNNING`; heartbeat starts in SHOW_POSITION. |
+| S1-19 | fixed | `showSeq++` + 3-shot burst (0/60/250 ms) on `t`, `FLAG_PERIODIC` on the 500 ms frame, hub renders `testString[0]` and logs `[HUB] render 'A'`. Burst copies carry distinct `h.seq` (seq is owned by `radio::send`); `showSeq` is the content key. |
+| S1-20 | fixed | table is an unordered set with `owned()`, `computeNextPos()` = lowest free ≥ 2 (recomputed, never trusted), nvsPos accepted if free, full → `ASSIGN pos 0` logged. `numBoards` = highest owned position (so an accepted nvsPos 5 is lit even when 2..4 are free). |
+| S1-21 | fixed | hub `identifyStart()` on IDENTIFY ALL; wired to K2 long. |
+| S1-22 | fixed | Show burst after every ASSIGN; ACK → `radio::ackReceived`; HB → `lastSeen/rssi/vbat` (shown in `s` with online/offline at 10 s); FORGET frees the slot. |
+| S1-23 | fixed | always `sizeof(Show)`; node requires `len >= sizeof(Show)`. |
+| S1-24 | fixed | `display::mirror` is the only copy, loaded in `setup()`. |
+| S1-25 | fixed | node ACKs every ASSIGN/SETPOS (including repeats) after `addPeer(hubMac)`; same-pos ASSIGN while SHOW_POSITION/RUNNING/LOST_HUB changes nothing. |
+| S1-26 | fixed | handlers only copy/flag; `node::render()` on core 1 draws from `latestShow` (copied under a `portMUX` spinlock); `FastLED.show()` only in `display::show()` from `loop()`. |
+| S1-27 | fixed | no `show()` in tick; `display::show()` paced at 16 ms. |
+| S1-28 | fixed | `stateEnteredAt` for DISCOVER/SHOW_POSITION timeouts, `nextHelloAt` jitter computed once per send, pulsing digit/'?' rendered every frame. |
+| S1-29 | fixed | `setState()` with name table logs `[NODE] A -> B pos=N`; pos 0 → "!" 3 s → UNASSIGNED; SETPOS handled. |
+| S1-30 | fixed | `CLAIM` is its own type; FORGET on K2 long (and serial `f`); gestures registered in `hub::begin()`/`node::begin()`. |
+| S1-31 | fixed | same-pos ASSIGN in LOST_HUB/RUNNING does not restart SHOW_POSITION; corner dot is drawn only in the LOST_HUB render path, so it clears on exit. |
+| S1-32 | fixed | SHOW_POSITION colour = hub colour if a Show is known else green; HB every 3 s + pos×300 ms in RUNNING. |
+| S1-33 | fixed | `renderDigit(10)` → code 15. |
+| S1-34 | fixed | `display::ledIndex(row, col, mirror)` used by `renderChar` and `setCornerDot`; mirror flips the pattern column, serpentine wiring unchanged (verified equal to the `espnow_ping` formula). |
+| S1-35 | fixed | `pulseLevel()` + `scaled()` (nscale8 on the colour); global brightness set only in `begin()`. |
+| S1-36 | fixed | `identifyStart/identifyActive/identifyRender`, 250 ms white/black, no delays. |
+| S1-37 | fixed | `setMaxRefreshRate(0)`, boot animation in `setup()` only, paced `show()`. A dirty flag was not added: render() redraws the 400-pixel buffer each frame (~50 µs), which is cheaper than tracking dirtiness across five states. |
+| S1-38 | fixed | 40 ms stable-state debounce, short = release before `longMs`, long fires once while held; fixed 4-entry array, no vector. |
+| S1-39 | fixed | `role = loadRole()` before the K4 check. |
+| S1-40 | fixed | setup order: Serial → storage → buttons → display + bootAnimation → battery stub → K4 toggle / 3 s serial H-N window (save, continue, no restart) → radio → hub/node begin → handler → netTask. |
+| S1-41 | fixed | non-blocking line buffer (`t` collects until newline, other letters act at once); `s` prints state name, table with online/offline/rssi/vbat, heap, minHeap, channel + OK, uptime, radio counters, net-task stack high-water. |
+| S1-42 | fixed | `loop()` = poll/serial/tick/render + paced `display::show()` + `delay(1)`. |
+| S1-43 | fixed | sketch includes trimmed to the module headers + `<WiFi.h>`. |
+| S1-44 | fixed | `enum class Role : uint8_t` in `config.h`. |
+| S1-45 | fixed | shared scalars `volatile`; `latestShow` and the hub table under `portMUX` spinlocks. |
+| S1-46 | fixed | `battery.h` stub; status LED 1 Hz DISCOVER / solid RUNNING / fast LOST_HUB (hub: blink SHOW_POSITION, solid RUNNING). |
+| S1-47 | fixed | `radio::send()` owns the needsAck flag bit. |
+| S1-48 | partially deferred | stack high-water printed in `s`; `[HUB] other hub heard <MAC>` logged. The CONFLICT state itself (stop transmitting, alternate "H"/"!") is deferred to a later step as the review suggested. |
+
+Interpretations worth a glance during verification:
+- Corner dot: "logical (row 0, col 19)" is mapped through `ledIndex()` like a glyph pixel, i.e. it lands at the glyph's top-right as the viewer sees it (physical LED 0 on a normal board, LED 19 on a mirrored one), not at raw LED index 19.
+- `Show.brightness` (0..100) is applied by the node as a colour scale; the hub sends 100 in this step.
+- After `CLAIM` the node enters DISCOVER but delays its first HELLO by 1 s so the CLAIM's ASSIGN lands first (otherwise the hub logs a second `(known)` ASSIGN straight after the `(new)` one).
+- DISCOVER glyph colours: remembered digit green, '?' orange; UNASSIGNED '?' red pulse; LOST_HUB dot dim red (60,0,0).
