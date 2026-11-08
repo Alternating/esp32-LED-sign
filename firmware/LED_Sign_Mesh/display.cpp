@@ -1,0 +1,85 @@
+#include "display.h"
+// character_patterns.h defines getCharacterPattern() (non-inline) in the header, so it
+// is included from exactly this one translation unit.
+#include "character_patterns.h"
+
+namespace display {
+
+CRGB leds[LEDS_PER_BOARD];
+bool mirror = false;
+
+static uint32_t lastShowMs = 0;
+static uint32_t identifyUntil = 0;
+
+void begin() {
+  FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, LEDS_PER_BOARD);
+  FastLED.setBrightness(map(BRIGHTNESS_PCT, 0, 100, 0, 255));
+  FastLED.setMaxRefreshRate(0);        // we pace show() ourselves
+  fill(CRGB::Black);
+}
+
+void bootAnimation() {
+  const CRGB seq[3] = { CRGB::Red, CRGB::Green, CRGB::Blue };
+  for (int i = 0; i < 3; i++) {
+    fill(seq[i]);       FastLED.show(); delay(300);
+    fill(CRGB::Black);  FastLED.show(); delay(300);
+  }
+}
+
+// Pattern arrays are row-major, row 0 = top, col 0 = left. The wiring flips columns
+// (as in espnow_ping: bi uses W-1-col), so a "normal" board maps pattern col c to
+// physical col W-1-c; a mirrored board maps it straight. Rows are serpentine: even rows
+// run left->right, odd rows right->left.
+int ledIndex(int row, int col, bool mirror) {
+  int pc = mirror ? col : (MATRIX_WIDTH - 1 - col);
+  return (row % 2 == 0) ? row * MATRIX_WIDTH + pc
+                        : row * MATRIX_WIDTH + (MATRIX_WIDTH - 1 - pc);
+}
+
+void clear() { fill(CRGB::Black); }
+
+void fill(CRGB color) { fill_solid(leds, LEDS_PER_BOARD, color); }
+
+void renderChar(char c, CRGB color) { renderChar(c, color, mirror); }
+
+void renderChar(char c, CRGB color, bool mir) {
+  const bool* p = getCharacterPattern(c);
+  if (!p) { clear(); return; }
+  for (int row = 0; row < MATRIX_HEIGHT; row++)
+    for (int col = 0; col < MATRIX_WIDTH; col++)
+      leds[ledIndex(row, col, mir)] = p[row * MATRIX_WIDTH + col] ? color : CRGB::Black;
+}
+
+void renderDigit(uint8_t pos, CRGB color) {
+  char c;
+  if (pos >= 1 && pos <= 9) c = (char)('0' + pos);
+  else if (pos == 10)       c = (char)15;          // PATTERN_TEN
+  else                      c = '?';
+  renderChar(c, color, mirror);
+}
+
+void setCornerDot(bool on, CRGB color) {
+  leds[ledIndex(0, MATRIX_WIDTH - 1, mirror)] = on ? color : CRGB::Black;
+}
+
+uint8_t pulseLevel() { return beatsin8(20, 40, 160); }   // 20 BPM, dim breathing
+
+CRGB scaled(CRGB c, uint8_t scale) { c.nscale8(scale); return c; }
+
+void identifyStart(uint16_t ms) { identifyUntil = millis() + ms; }
+
+bool identifyActive() { return identifyUntil != 0 && (int32_t)(identifyUntil - millis()) > 0; }
+
+void identifyRender() {
+  bool on = (millis() / 250) & 1;
+  fill(on ? CRGB::White : CRGB::Black);
+}
+
+void show() {
+  uint32_t now = millis();
+  if (now - lastShowMs < FRAME_MS) return;
+  lastShowMs = now;
+  FastLED.show();
+}
+
+} // namespace display
