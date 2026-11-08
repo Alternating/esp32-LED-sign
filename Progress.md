@@ -3,11 +3,12 @@
 Tracking file per project rules. Newest log entries at top.
 
 ## Status
-- **Phase:** 0 — Bench test: radio link PASSED; flicker/phone/range checks pending. Then Phase 1.
+- **Phase:** 0 complete for radio (all gates passed); flicker/range are observational follow-ups. **Ready for Phase 1.**
 - **Active agent:** Orchestrator (Claude session 2026-11-08); research + planning agents on Standby
 - **Blocker cleared:** `character_patterns.h` extended to 68 glyphs; ready for Phase 0.
 
 ## Log
+- 2026-11-08 — Phase 0 phone-on-AP gate passed: owner joined `LEDSIGN-BENCH`, loaded the hub page; 12.6 min run 3795/3791 = 0.1 % loss, RTT avg 6.2 ms (max 58 ms under phone traffic), heap stable. **Phase 0 radio gates all PASSED.** Open: flicker eyeball, 5 m range.
 - 2026-11-08 — Repo pushed to GitHub (`Alternating/esp32-LED-sign`). Qwen box cloned at `~/esp32-led-sign` = primary build/flash station (two LOLIN32s on ttyUSB0/1). Windows folder `Code\esp32-LED-sign` is a clone. File shuttling retired; flow is commit/push → `git pull` on the box.
 - 2026-11-08 — Local LLM (Ollama on the Qwen box) wired up as a tool via `tools/ask_local_llm.py`; 27b-q4 runs ~29 tok/s on the R9700. Usage rule in `tools/README.md`: drafts only, verify on hardware (its first answer contradicted a bench result).
 - 2026-11-08 — **Phase 0 radio test PASSED** on two LOLIN32s (`firmware/bench/espnow_ping`): hub in AP_STA with SoftAP on ch 6 + ESP-NOW broadcast @ 5 Hz, node STA replying unicast. 248/248 pings, 0.0 % loss, RTT 3/6.5/25 ms, RSSI −33 dBm, heaps flat. Confirms the AP+ESP-NOW same-channel design and the core 3.3.12 ESP-NOW callback API (`wifi_tx_info_t`, `esp_now_recv_info_t`). Second board MAC 78:E3:6D:19:18:38. Remaining Phase 0 items: visual flicker check, phone-on-AP during ping, 5 m range.

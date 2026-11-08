@@ -31,4 +31,13 @@ Result 2026-11-08, boards side by side on the bench:
 | sketch | 1.01 MB (48 % of `no_ota`), 50 kB static RAM |
 | AP channel == ESP-NOW channel | 6 == 6 ✓ (`esp_wifi_get_channel` check in `radioInit`) |
 
-Still to do for Phase 0 sign-off: visual flicker check on a matrix while pinging; phone joined to `LEDSIGN-BENCH` loading 192.168.4.1 during the run (loss must stay < 2 %); repeat at 5 m range.
+Phone-on-AP run (12.6 min continuous, phone joined `LEDSIGN-BENCH` and loaded 192.168.4.1 repeatedly):
+| metric | value |
+|---|---|
+| pings / pongs | 3795 / 3791 → **0.1 % loss**, txfail 0 |
+| RTT min / avg / max | 3 / 6.2 / 58 ms (max rose from 25 → 58 ms while the phone was active) |
+| AP clients | 1 |
+| hub heap | 213.6 kB idle → 210.2 kB with a client, stable |
+
+**Phase 0 radio gates: PASSED** (loss < 1 % alone, < 2 % with a phone on the AP, RTT median < 20 ms).
+Still open: visual flicker check with radios active; 5 m range sample.
