@@ -88,7 +88,7 @@ static Collect collecting = Collect::NONE;
 static void printWebStats() {
   if (role != Role::HUB) { Serial.println("? (hub only)"); return; }
   Serial.printf("web: requests=%u lastClient=%s apClients=%u ssid=%s ip=%s\n",
-                transport_web::reqCount(), IPAddress(transport_web::lastClientIp()).toString().c_str(),
+                (unsigned)transport_web::reqCount(), IPAddress(transport_web::lastClientIp()).toString().c_str(),
                 transport_web::apClients(), radio::apSsid(), WiFi.softAPIP().toString().c_str());
 }
 
@@ -97,12 +97,12 @@ static void printStatus() {
   if (role == Role::HUB) hub::printStatus(); else node::printStatus();
   uint8_t ch = WiFi.channel();
   Serial.printf("heap=%u minHeap=%u channel=%d(%s) uptime=%lus tx=%u txFail=%u rx=%u rxDrop=%u netStackFree=%u\n",
-                ESP.getFreeHeap(), ESP.getMinFreeHeap(), ch, radio::channelOk() ? "OK" : "MISMATCH",
-                (unsigned long)(millis() / 1000), radio::txCount(), radio::txFailCount(),
-                radio::rxCount(), radio::rxDropCount(),
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(), ch, radio::channelOk() ? "OK" : "MISMATCH",
+                (unsigned long)(millis() / 1000), (unsigned)radio::txCount(), (unsigned)radio::txFailCount(),
+                (unsigned)radio::rxCount(), (unsigned)radio::rxDropCount(),
                 netTaskHandle ? (unsigned)uxTaskGetStackHighWaterMark(netTaskHandle) : 0u);
   if (role == Role::HUB)
-    Serial.printf("web clients=%u requests=%u\n", transport_web::apClients(), transport_web::reqCount());
+    Serial.printf("web clients=%u requests=%u\n", transport_web::apClients(), (unsigned)transport_web::reqCount());
   Serial.println("----------------");
 }
 
@@ -211,8 +211,8 @@ void setup() {
 
   char mac[18]; radio::macToStr(radio::myMac(), mac);
   Serial.printf("Running as %s  MAC %s  radio=%s channel=%d %s  mirror=%d  free heap %u\n",
-                roleName(role), mac, radioOk ? "OK" : "FAILED", WiFi.channel(),
-                radio::channelOk() ? "OK" : "MISMATCH", display::mirror, ESP.getFreeHeap());
+                roleName(role), mac, radioOk ? "OK" : "FAILED", (int)WiFi.channel(),
+                radio::channelOk() ? "OK" : "MISMATCH", display::mirror, (unsigned)ESP.getFreeHeap());
 }
 
 void loop() {
