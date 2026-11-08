@@ -24,6 +24,11 @@ void renderDigit(uint8_t pos, CRGB color);           // 1..9 -> '1'..'9', 10 -> 
 void setCornerDot(bool on, CRGB color);              // logical row 0, col 19
 void fill(CRGB color);
 
+// Effect/brightness styling shared by hub and node renders (brief item 5). Pure, no FastLED
+// calls. bri is the already-capped 0..100 value carried in Show.brightness; hubNowMs is the
+// hub clock so every board is in phase. effect: 0 static, 1 blink, 2 fade (30-100 %), 3 cycle.
+CRGB    styled(uint8_t r, uint8_t g, uint8_t b, uint8_t bri, uint8_t effect, uint16_t periodMs, uint32_t hubNowMs);
+
 uint8_t pulseLevel();                                // 0..255 slow breathing scale for DISCOVER/UNASSIGNED
 CRGB    scaled(CRGB c, uint8_t scale);               // c.nscale8(scale), returns a copy
 

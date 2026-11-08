@@ -18,7 +18,10 @@
 //   * -> UNASSIGNED       : RESETORD (no HELLO until power cycle or CLAIM)
 //   UNASSIGNED -> DISCOVER: K1 long / 'c' (CLAIM)
 //   RUNNING/LOST_HUB -> SHOW_POSITION : SETPOS
+//   * -> UNASSIGNED       : FORGET addressed to us (hub dropped our row; NVS pos cleared)
 // handlePacket() runs on core 0 and only updates state/flags; render() on core 1 draws.
+// Styling (brief item 5): render() colours the glyph with display::styled() at hubNow(), the
+// hub clock reconstructed from Show.hubMillis with a low-pass offset (alpha = 1/4).
 
 namespace node {
 
@@ -41,6 +44,12 @@ static uint32_t nextHbAt = 0;
 static uint32_t statusLedAt = 0;
 static int8_t   hubRssi = 0;
 static char     renderedChar = 0;
+
+// Hub clock: offset = hubMillis - millis(), low-pass filtered. Written on core 0 (onShow),
+// read on core 1 (render); a single aligned 32-bit write, hence volatile is enough.
+static volatile int32_t hubOffset = 0;
+static volatile bool    hubOffsetInit = false;
+static uint32_t hubNow() { return millis() + (uint32_t)hubOffset; }
 
 // ---------------- helpers ----------------
 const char* stateName(NodeState s) {
@@ -128,13 +137,20 @@ static void onShow(const uint8_t* srcMac, const Show* s, int8_t rssi) {
   learnHub(srcMac);
   hubRssi = rssi;
   lastShowMs = millis();                            // any Show feeds the LOST_HUB timer
-  bool apply = !haveShow || s->showSeq != latestShow.showSeq || st != NodeState::RUNNING;
+  bool seqChanged = !haveShow || s->showSeq != latestShow.showSeq;
+  bool apply = seqChanged || st != NodeState::RUNNING;
   if (apply) {
     portENTER_CRITICAL(&showMux);
     memcpy(&latestShow, s, sizeof(Show));
     haveShow = true;
     portEXIT_CRITICAL(&showMux);
+    if (seqChanged)
+      Serial.printf("[NODE] apply seq=%u color=%02X%02X%02X bri=%u fx=%u period=%u numBoards=%u\n",
+                    (unsigned)s->showSeq, s->r, s->g, s->b, s->brightness, s->effect, s->effectPeriodMs, s->numBoards);
   }
+  int32_t sample = (int32_t)(s->hubMillis + 2 - millis());     // +2 ms air/queue latency
+  if (!hubOffsetInit) { hubOffset = sample; hubOffsetInit = true; }
+  else hubOffset = hubOffset + (sample - hubOffset) / 4;
   if (st == NodeState::LOST_HUB) setState(NodeState::RUNNING);
 }
 
@@ -171,6 +187,14 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
     case RESETORD:
       if (st != NodeState::UNASSIGNED) {
         Serial.println("[NODE] RESETORD received");
+        savePos(0);
+        showBang = false;
+        setState(NodeState::UNASSIGNED);
+      }
+      break;
+    case FORGET:                                      // hub dropped our row (web/serial `forget`)
+      if (myPos && h->dstPos == myPos) {
+        Serial.printf("[NODE] FORGET from hub (pos %d): clearing NVS pos -> UNASSIGNED\n", myPos);
         savePos(0);
         showBang = false;
         setState(NodeState::UNASSIGNED);
@@ -275,8 +299,8 @@ void render() {
   if (have) memcpy(&s, &latestShow, sizeof(Show));
   portEXIT_CRITICAL(&showMux);
 
-  CRGB hubColor = have ? CRGB(s.r, s.g, s.b) : CRGB::Green;
-  if (have && s.brightness < 100) hubColor.nscale8((uint8_t)((uint16_t)s.brightness * 255 / 100));
+  CRGB hubColor = have ? display::styled(s.r, s.g, s.b, s.brightness, s.effect, s.effectPeriodMs, hubNow())
+                       : CRGB::Green;
 
   char showChar = 0;
   if (have && myPos >= 1 && myPos <= s.numBoards) showChar = s.chars[myPos - 1];
@@ -317,9 +341,14 @@ void render() {
 
 void printStatus() {
   char ms[18]; radio::macToStr(hubMac, ms);
-  Serial.printf("role=NODE pos=%d state=%s hub=%s haveShow=%d showSeq=%u lastShow=%lums ago rssi=%d mirror=%d\n",
+  Serial.printf("role=NODE pos=%d state=%s hub=%s haveShow=%d showSeq=%u lastShow=%lums ago rssi=%d mirror=%d hubOffset=%ld\n",
                 myPos, stateName(st), hubKnown ? ms : "none", haveShow ? 1 : 0,
-                haveShow ? latestShow.showSeq : 0, (unsigned long)(millis() - lastShowMs), hubRssi, display::mirror);
+                haveShow ? latestShow.showSeq : 0, (unsigned long)(millis() - lastShowMs), hubRssi, display::mirror,
+                (long)hubOffset);
+  if (haveShow)
+    Serial.printf("show: color=%02X%02X%02X bri=%u fx=%u period=%u numBoards=%u\n",
+                  latestShow.r, latestShow.g, latestShow.b, latestShow.brightness, latestShow.effect,
+                  latestShow.effectPeriodMs, latestShow.numBoards);
 }
 
 } // namespace node

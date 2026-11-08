@@ -1,10 +1,11 @@
-// storage.h — Preferences wrapper. Namespaces: "sys" (role, mirror, transport),
-// "tbl" (hub MAC->pos table + nextPos), "node" (pos).
+// storage.h — Preferences wrapper. Namespaces: "sys" (role, mirror, transport, AP ssid),
+// "tbl" (hub MAC->pos table + nextPos), "node" (pos), "sign" (SignState blob).
 #ifndef STORAGE_H
 #define STORAGE_H
 
 #include <Arduino.h>
 #include "config.h"
+#include "sign_state.h"
 
 namespace storage {
 
@@ -30,6 +31,14 @@ void clearTable();
 // Node position (0 = none)
 uint8_t loadNodePos();
 void    saveNodePos(uint8_t pos);
+
+// Sign configuration: one blob prefixed with SIGN_BLOB_VER; wrong size/version -> SIGN_DEFAULT
+void loadSign(SignState& s);
+void saveSign(const SignState& s);
+
+// AP SSID (namespace "sys"); out gets def when nothing is stored. Returns true if stored.
+bool loadSsid(char* out, size_t n, const char* def);
+void saveSsid(const char* ssid);
 
 } // namespace storage
 

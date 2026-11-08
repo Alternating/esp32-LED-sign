@@ -7,6 +7,7 @@ namespace storage {
 static const char* NS_SYS  = "sys";
 static const char* NS_TBL  = "tbl";
 static const char* NS_NODE = "node";
+static const char* NS_SIGN = "sign";
 
 // All namespaces are opened read-write (begin(ns, false)): a read-only open of a
 // namespace that does not exist yet fails, and puts on a read-only handle are no-ops.
@@ -90,6 +91,50 @@ uint8_t loadNodePos() {
 void saveNodePos(uint8_t pos) {
   Preferences p; p.begin(NS_NODE, false);
   p.putUChar("pos", pos);
+  p.end();
+}
+
+void loadSign(SignState& s) {
+  uint8_t buf[1 + sizeof(SignState)];
+  Preferences p; p.begin(NS_SIGN, false);
+  size_t got = p.getBytesLength("sign");
+  bool ok = (got == sizeof(buf)) && p.getBytes("sign", buf, sizeof(buf)) == sizeof(buf) && buf[0] == SIGN_BLOB_VER;
+  p.end();
+  if (ok) {
+    memcpy(&s, buf + 1, sizeof(SignState));
+    s.text[SIGN_TEXT_MAX] = 0;
+    if (s.bri > 100) s.bri = 100;
+    if (s.effect > FX_CYCLE) s.effect = FX_STATIC;
+    if (s.effectPeriodMs < 100 || s.effectPeriodMs > 2000) s.effectPeriodMs = 500;
+    if (s.boards > MAX_BOARDS) s.boards = 0;
+    s.rainbow = (s.effect == FX_CYCLE);
+  } else {
+    if (got != 0) Serial.printf("[STORAGE] sign blob size %u / version mismatch, using defaults\n", (unsigned)got);
+    s = SIGN_DEFAULT;
+  }
+}
+
+void saveSign(const SignState& s) {
+  uint8_t buf[1 + sizeof(SignState)];
+  buf[0] = SIGN_BLOB_VER;
+  memcpy(buf + 1, &s, sizeof(SignState));
+  Preferences p; p.begin(NS_SIGN, false);
+  p.putBytes("sign", buf, sizeof(buf));
+  p.end();
+}
+
+bool loadSsid(char* out, size_t n, const char* def) {
+  out[0] = 0;
+  Preferences p; p.begin(NS_SYS, false);
+  size_t got = p.getString("ssid", out, n);
+  p.end();
+  if (got == 0 || out[0] == 0) { strncpy(out, def, n - 1); out[n - 1] = 0; return false; }
+  return true;
+}
+
+void saveSsid(const char* ssid) {
+  Preferences p; p.begin(NS_SYS, false);
+  p.putString("ssid", ssid);
   p.end();
 }
 

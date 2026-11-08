@@ -1,21 +1,26 @@
 /*
- * LED_Sign_Mesh — Phase 1 step 1: ESP-NOW radio, protocol, hub/node numbering state machines.
- * Board: LOLIN32 (esp32:esp32:lolin32:PartitionScheme=no_ota), core 3.3.12, FastLED 3.10.9.
- * One binary for hub and node; role persisted in NVS.
+ * LED_Sign_Mesh — Phase 1 step 3: ESP-NOW radio + numbering (step 1) plus the hub's web
+ * transport (captive portal, JSON commands, phone UI), node/hub styling and persistence.
+ * Board: LOLIN32 (esp32:esp32:lolin32:PartitionScheme=no_ota), core 3.3.12, FastLED 3.10.9,
+ * ArduinoJson 7.4.3. One binary for hub and node; role persisted in NVS.
  *
  * Role selection at boot (after the boot animation):
  *   - K4 held             -> toggle role (saved)
  *   - serial 'H' / 'N' within 3 s -> set role (saved)
  *   Either way the new role is used immediately, no restart.
  *
- * Serial console (single letters act immediately; 't' takes the rest of the line):
- *   hub : r = reset order, i = identify all, t<text> = test Show string, s = status, m = toggle mirror
- *   node: c = claim, s = status, m = toggle mirror
+ * Serial console (single letters act immediately; 't' and '{' take the rest of the line):
+ *   hub : r = reset order, i = identify all, t<text> = msg alias, s = status, m = toggle mirror,
+ *         w = web stats, {json} = command (same handler as POST /cmd; reply printed)
+ *   node: c = claim, f = forget, s = status, m = toggle mirror
  *
- * Threading: loop() on core 1 = buttons, serial, role tick, render, FastLED.show() <= 60 Hz.
- *            netTask on core 0 = radio::pump() every 5 ms (RX dispatch + gated TX queue).
+ * Threading: loop() on core 1 = buttons, serial, role tick, render, FastLED.show() <= 60 Hz,
+ *            sign auto-save (NVS). netTask on core 0 = radio::pump() every 5 ms (RX dispatch +
+ *            gated TX queue) and, on the hub, transport->poll() (HTTP + DNS).
+ * Init order (hub): radio::beginHub(ssid) -> transport->begin() -> hub::begin() -> netTask.
  */
 #include <WiFi.h>
+#include <ArduinoJson.h>
 #include "config.h"
 #include "protocol.h"
 #include "radio_espnow.h"
@@ -25,9 +30,13 @@
 #include "battery.h"
 #include "hub.h"
 #include "node.h"
+#include "commands.h"
+#include "transport.h"
+#include "transport_web.h"
 
 static Role role = Role::NODE;
 static TaskHandle_t netTaskHandle = nullptr;
+static Transport* transport = nullptr;        // hub only
 
 static const char* roleName(Role r) { return r == Role::HUB ? "HUB" : "NODE"; }
 
@@ -35,14 +44,53 @@ static const char* roleName(Role r) { return r == Role::HUB ? "HUB" : "NODE"; }
 static void netTask(void*) {
   for (;;) {
     radio::pump();
+    if (role == Role::HUB && transport) transport->poll();
     delay(5);
   }
 }
 
+// ---------------- commands ----------------
+static bool cmdHandler(JsonDocument& cmd, JsonDocument& reply) {
+  return commands::handle(cmd, reply, role == Role::HUB);
+}
+
+// Run one JSON command from the serial console and print the reply (same path as POST /cmd)
+static void runJsonLine(const char* line) {
+  JsonDocument cmd, reply;
+  DeserializationError e = deserializeJson(cmd, line);
+  if (e || !cmd.is<JsonObject>()) {
+    Serial.printf("{\"ok\":false,\"err\":\"bad_json\",\"note\":\"%s\"}\n", e.c_str());
+    return;
+  }
+  bool ok = cmdHandler(cmd, reply);
+  if (!ok && reply["err"].isNull()) reply["err"] = "bad_cmd";
+  reply["ok"] = ok;
+  serializeJson(reply, Serial);
+  Serial.println();
+}
+
+static void runTextLine(const char* text) {       // t<text> = msg alias
+  JsonDocument cmd, reply;
+  cmd["cmd"] = "msg"; cmd["text"] = text;
+  bool ok = cmdHandler(cmd, reply);
+  if (!ok && reply["err"].isNull()) reply["err"] = "bad_cmd";
+  reply["ok"] = ok;
+  serializeJson(reply, Serial);
+  Serial.println();
+}
+
 // ---------------- serial console (non-blocking line buffer) ----------------
-static char lineBuf[32];
-static uint8_t lineLen = 0;
-static bool collectingText = false;
+enum class Collect : uint8_t { NONE, TEXT, JSON };
+static char lineBuf[256];
+static uint16_t lineLen = 0;
+static Collect collecting = Collect::NONE;
+
+static void printWebStats() {
+  if (role != Role::HUB) { Serial.println("? (hub only)"); return; }
+  Serial.printf("web: requests=%u lastClient=%s apClients=%u ssid=%s ip=%s\n",
+                transport_web::reqCount(), IPAddress(transport_web::lastClientIp()).toString().c_str(),
+                transport_web::apClients(), radio::apSsid(), WiFi.softAPIP().toString().c_str());
+}
 
 static void printStatus() {
   Serial.println("---- status ----");
@@ -53,12 +101,15 @@ static void printStatus() {
                 (unsigned long)(millis() / 1000), radio::txCount(), radio::txFailCount(),
                 radio::rxCount(), radio::rxDropCount(),
                 netTaskHandle ? (unsigned)uxTaskGetStackHighWaterMark(netTaskHandle) : 0u);
+  if (role == Role::HUB)
+    Serial.printf("web clients=%u requests=%u\n", transport_web::apClients(), transport_web::reqCount());
   Serial.println("----------------");
 }
 
 static void runCommand(char c) {
   switch (c) {
     case 's': printStatus(); break;
+    case 'w': printWebStats(); break;
     case 'm':
       display::mirror = !display::mirror;
       storage::saveMirror(display::mirror);
@@ -69,24 +120,27 @@ static void runCommand(char c) {
     case 'c': if (role == Role::NODE) node::onClaim();     else Serial.println("? (node only)"); break;
     case 'f': if (role == Role::NODE) node::onForget();    else Serial.println("? (node only)"); break;
     case '\r': case '\n': case ' ': break;
-    default:  Serial.printf("? unknown '%c' (r i t<text> s m | c f s m)\n", c); break;
+    default:  Serial.printf("? unknown '%c' (r i t<text> {json} s m w | c f s m)\n", c); break;
   }
 }
 
 static void handleSerial() {
   while (Serial.available()) {
     char c = (char)Serial.read();
-    if (collectingText) {
+    if (collecting != Collect::NONE) {
       if (c == '\n' || c == '\r') {
         lineBuf[lineLen] = 0;
-        if (role == Role::HUB) hub::setTestString(lineBuf); else Serial.println("? t is hub only");
-        collectingText = false; lineLen = 0;
+        if (collecting == Collect::JSON) runJsonLine(lineBuf);
+        else if (role == Role::HUB) runTextLine(lineBuf);
+        else Serial.println("? t is hub only");
+        collecting = Collect::NONE; lineLen = 0;
       } else if (lineLen < sizeof(lineBuf) - 1) {
         lineBuf[lineLen++] = c;
       }
       continue;
     }
-    if (c == 't') { collectingText = true; lineLen = 0; continue; }
+    if (c == 't') { collecting = Collect::TEXT; lineLen = 0; continue; }
+    if (c == '{') { collecting = Collect::JSON; lineLen = 0; lineBuf[lineLen++] = '{'; continue; }
     runCommand(c);
   }
 }
@@ -136,11 +190,24 @@ void setup() {
 
   selectRole();
 
-  bool radioOk = (role == Role::HUB) ? radio::beginHub() : radio::beginNode();
-  if (role == Role::HUB) { hub::begin();  radio::setHandler(hub::handlePacket); }
-  else                   { node::begin(); radio::setHandler(node::handlePacket); }
+  bool radioOk;
+  if (role == Role::HUB) {
+    char ssid[33];
+    storage::loadSsid(ssid, sizeof(ssid), AP_SSID);
+    radioOk = radio::beginHub(ssid);               // the ONLY softAP call (channel 6)
+    transport = &transport_web::instance();
+    transport->setCommandHandler(cmdHandler);
+    transport->begin();                            // before the net task exists
+    hub::begin();                                  // restores SignState from NVS before the first Show
+    radio::setHandler(hub::handlePacket);
+  } else {
+    radioOk = radio::beginNode();
+    node::begin();
+    radio::setHandler(node::handlePacket);
+  }
 
-  xTaskCreatePinnedToCore(netTask, "net", 8192, nullptr, 1, &netTaskHandle, 0);
+  // Hub net task also serves HTTP (WebServer + ArduinoJson on its stack): 12 kB there, node unchanged.
+  xTaskCreatePinnedToCore(netTask, "net", role == Role::HUB ? 12288 : 8192, nullptr, 1, &netTaskHandle, 0);
 
   char mac[18]; radio::macToStr(radio::myMac(), mac);
   Serial.printf("Running as %s  MAC %s  radio=%s channel=%d %s  mirror=%d  free heap %u\n",

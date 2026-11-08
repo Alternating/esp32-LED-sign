@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>LED Sign</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { background: #1a1a1a; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Tahoma, sans-serif; background: #1a1a1a; color: #e0e0e0; -webkit-text-size-adjust: 100%; }
+.container { max-width: 800px; margin: 0 auto; padding: 12px; }
+.header { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 4px 10px; }
+h1 { font-size: 20px; color: #e0e0e0; }
+#conn { font-size: 12px; color: #888; }
+#conn.on { color: #28a745; }
+#conn.off { color: #dc3545; }
+.tabs { display: flex; gap: 4px; }
+.tab { flex: 1; padding: 11px 4px; border-radius: 8px 8px 0 0; cursor: pointer; background: #333; color: #ccc; border: none; font-size: 14px; touch-action: manipulation; }
+.tab.active { background: #2d2d2d; color: #fff; border-bottom: 2px solid #007bff; }
+.panel { display: none; background: #2d2d2d; padding: 16px; border-radius: 0 0 8px 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+.panel.active { display: block; }
+h2 { font-size: 18px; margin-bottom: 12px; color: #007bff; }
+label { display: block; margin: 12px 0 6px; font-size: 13px; color: #aaa; }
+label:first-of-type { margin-top: 0; }
+input, select, textarea { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #3d3d3d; color: #e0e0e0; font-size: 16px; }
+textarea { min-height: 72px; resize: vertical; font-family: inherit; }
+input[type="range"] { padding: 0; margin: 8px 0; height: 28px; background: transparent; border: none; }
+input[type="color"] { height: 44px; padding: 4px; margin-top: 8px; }
+.value { display: inline-block; background: #007bff; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
+.hint { font-size: 12px; color: #aaa; margin-top: 8px; }
+.hint.over { color: #ff6b6b; font-weight: bold; }
+.btn { background: #007bff; color: #fff; border: none; padding: 12px 16px; border-radius: 6px; cursor: pointer; font-size: 15px; width: 100%; margin-top: 10px; touch-action: manipulation; }
+.btn:hover { background: #0056b3; }
+.btn:disabled { background: #555; color: #999; }
+.btn.danger { background: #dc3545; }
+.btn.danger:hover { background: #c82333; }
+.btn.secondary { background: #444; }
+.row { display: flex; gap: 8px; }
+.row .btn { margin-top: 10px; }
+.keypad { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 10px; }
+.symbol-btn { background: #444; color: #fff; border: 1px solid #555; border-radius: 6px; padding: 8px 0; font-size: 20px; cursor: pointer; touch-action: manipulation; }
+.symbol-btn:hover { background: #555; }
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+.swatch { width: 40px; height: 40px; border-radius: 50%; cursor: pointer; border: 2px solid #2d2d2d; box-shadow: 0 0 0 1px #555; touch-action: manipulation; }
+.swatch.active { box-shadow: 0 0 0 3px #007bff; }
+.swatch.rainbow { background: linear-gradient(135deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f); background: conic-gradient(#f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.segments { display: flex; gap: 4px; }
+.segment { flex: 1; padding: 10px 4px; background: #3d3d3d; border-radius: 4px; text-align: center; cursor: pointer; border: 1px solid #444; font-size: 14px; touch-action: manipulation; }
+.segment.active { background: #007bff; color: #fff; border-color: #007bff; }
+.board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.board-card { background: #3d3d3d; border-radius: 6px; padding: 10px; border: 2px solid #555; }
+.board-card.online { border-color: #28a745; }
+.board-card.offline { border-color: #dc3545; opacity: 0.85; }
+.board-card .top { display: flex; justify-content: space-between; align-items: baseline; }
+.board-card .pos { font-size: 24px; font-weight: bold; color: #007bff; }
+.board-card .badge { font-size: 10px; background: #007bff; color: #fff; padding: 2px 6px; border-radius: 4px; }
+.board-card .st { font-size: 12px; font-weight: bold; }
+.board-card.online .st { color: #28a745; }
+.board-card.offline .st { color: #dc3545; }
+.board-card .info { font-size: 11px; color: #aaa; margin-top: 4px; font-family: Menlo, Consolas, monospace; }
+.board-card .chr { font-size: 18px; color: #e0e0e0; margin-top: 4px; }
+.board-card .actions { margin-top: 8px; display: flex; gap: 4px; }
+.board-card .actions button { flex: 1; font-size: 12px; padding: 7px 4px; margin-top: 0; }
+.status { margin-top: 12px; padding: 10px; border-radius: 6px; font-size: 12px; color: #aaa; background: #3d3d3d; line-height: 1.6; }
+pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px; font-size: 11px; color: #aaa; white-space: pre-wrap; word-break: break-all; max-height: 220px; overflow: auto; min-height: 40px; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #dc3545; color: #fff; padding: 10px 20px; border-radius: 6px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 1000; font-size: 14px; max-width: 90%; }
+.toast.ok { background: #28a745; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header"><h1>LED Sign</h1><span id="conn">connecting&hellip;</span></div>
+  <div class="tabs">
+    <button class="tab active" data-tab="message">Message</button>
+    <button class="tab" data-tab="look">Look</button>
+    <button class="tab" data-tab="boards">Boards</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </div>
+
+  <div id="message" class="panel active">
+    <h2>Message</h2>
+    <label for="msgText">Text (symbols count as one character)</label>
+    <textarea id="msgText" placeholder="Type your message..." autocapitalize="characters" autocomplete="off"></textarea>
+    <div class="hint" id="charHint">0 / 1 boards</div>
+    <div class="keypad">
+      <button class="symbol-btn" data-sym="heart" title="{heart}">&#9829;</button>
+      <button class="symbol-btn" data-sym="star" title="{star}">&#9733;</button>
+      <button class="symbol-btn" data-sym="check" title="{check}">&#10003;</button>
+      <button class="symbol-btn" data-sym="cross" title="{cross}">&#10007;</button>
+      <button class="symbol-btn" data-sym="right" title="{right}">&#8594;</button>
+      <button class="symbol-btn" data-sym="left" title="{left}">&#8592;</button>
+      <button class="symbol-btn" data-sym="up" title="{up}">&#8593;</button>
+      <button class="symbol-btn" data-sym="down" title="{down}">&#8595;</button>
+      <button class="symbol-btn" data-sym="diamond" title="{diamond}">&#9830;</button>
+      <button class="symbol-btn" data-sym="circle" title="{circle}">&#9679;</button>
+      <button class="symbol-btn" data-sym="happy" title="{happy}">:)</button>
+      <button class="symbol-btn" data-sym="sad" title="{sad}">:(</button>
+    </div>
+    <button class="btn" id="sendBtn">Send</button>
+  </div>
+
+  <div id="look" class="panel">
+    <h2>Look</h2>
+    <label>Colour</label>
+    <div class="swatches" id="swatches">
+      <div class="swatch" data-hex="00FF00" style="background:#00FF00" title="Green"></div>
+      <div class="swatch" data-hex="FF0000" style="background:#FF0000" title="Red"></div>
+      <div class="swatch" data-hex="0000FF" style="background:#0000FF" title="Blue"></div>
+      <div class="swatch" data-hex="FFFF00" style="background:#FFFF00" title="Yellow"></div>
+      <div class="swatch" data-hex="00FFFF" style="background:#00FFFF" title="Cyan"></div>
+      <div class="swatch" data-hex="FF00FF" style="background:#FF00FF" title="Magenta"></div>
+      <div class="swatch" data-hex="FFFFFF" style="background:#FFFFFF" title="White"></div>
+      <div class="swatch rainbow" data-rainbow="1" title="Rainbow"></div>
+    </div>
+    <input type="color" id="colorPicker" value="#00FF00">
+    <label for="briSlider">Brightness <span id="briVal" class="value">100%</span></label>
+    <input type="range" id="briSlider" min="0" max="100" value="100">
+    <label>Effect</label>
+    <div class="segments" id="fxSegments">
+      <div class="segment active" data-fx="static">Static</div>
+      <div class="segment" data-fx="blink">Blink</div>
+      <div class="segment" data-fx="fade">Fade</div>
+      <div class="segment" data-fx="cycle">Cycle</div>
+    </div>
+    <label for="speedSlider">Speed <span id="speedVal" class="value">500 ms</span></label>
+    <input type="range" id="speedSlider" min="100" max="2000" step="100" value="500">
+  </div>
+
+  <div id="boards" class="panel">
+    <h2>Boards</h2>
+    <label for="boardsCount">Board count</label>
+    <select id="boardsCount"></select>
+    <div class="hint" id="boardsHint"></div>
+    <div id="boardGrid" class="board-grid" style="margin-top:12px"></div>
+    <div class="row">
+      <button class="btn secondary" id="identifyAll">Identify all</button>
+      <button class="btn danger" id="resetOrder">Reset order</button>
+    </div>
+  </div>
+
+  <div id="settings" class="panel">
+    <h2>Settings</h2>
+    <label for="apName">AP name (1-24 chars: letters, digits, - _; applies after reboot)</label>
+    <input type="text" id="apName" maxlength="24" placeholder="LEDSIGN-HUB" autocomplete="off" autocapitalize="off">
+    <button class="btn" id="saveName">Save AP name</button>
+    <div class="status" id="status">Waiting for /state&hellip;</div>
+    <label for="rawCmd">Raw JSON command</label>
+    <textarea id="rawCmd" rows="2" autocapitalize="off" autocomplete="off" spellcheck="false">{"cmd":"get"}</textarea>
+    <button class="btn secondary" id="sendRaw">Send JSON</button>
+    <pre id="log"></pre>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var S = { cfg: null, state: null };
+  var lastCfgText = null, lastName = null;
+  var focusedText = false, inflight = false, polling = false;
+  var briT = null, speedT = null, briTouched = 0, speedTouched = 0;
+  var logLines = [];
+  var SYM = { heart: '{heart}', star: '{star}', check: '{check}', cross: '{cross}', right: '{right}', left: '{left}',
+              up: '{up}', down: '{down}', diamond: '{diamond}', circle: '{circle}', happy: '{happy}', sad: '{sad}' };
+
+  function $(id) { return document.getElementById(id); }
+  function each(list, fn) { for (var i = 0; i < list.length; i++) fn(list[i], i); }
+  function all(sel) { return document.querySelectorAll(sel); }
+
+  // ---------- transport ----------
+  function fetchJson(url, opts, cb, errCb) {
+    var ctrl = window.AbortController ? new AbortController() : null;
+    if (ctrl) opts.signal = ctrl.signal;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 4000) : null;
+    fetch(url, opts).then(function (r) { return r.json(); }).then(function (d) {
+      if (timer) clearTimeout(timer);
+      cb(d);
+    }).catch(function (e) {
+      if (timer) clearTimeout(timer);
+      errCb(e);
+    });
+  }
+
+  function sendCmd(obj, cb) {
+    var body = JSON.stringify(obj);
+    fetchJson('/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body }, function (d) {
+      addLog('> ' + body + '\n< ' + JSON.stringify(d));
+      if (!d || !d.ok) toast('Error: ' + ((d && d.err) || 'no reply'), false);
+      if (cb) cb(d);
+    }, function () {
+      addLog('> ' + body + '\n< (network error)');
+      toast('Network error', false);
+      setConn(false);
+      if (cb) cb(null);
+    });
+  }
+
+  function addLog(s) {
+    logLines.push(s);
+    if (logLines.length > 10) logLines.shift();
+    $('log').textContent = logLines.join('\n');
+  }
+
+  function toast(msg, ok) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (ok ? ' ok' : '');
+    clearTimeout(t._t);
+    t._t = setTimeout(function () { t.className = 'toast' + (ok ? ' ok' : ''); }, 2200);
+  }
+
+  function setConn(on) {
+    var c = $('conn');
+    c.className = on ? 'on' : 'off';
+    c.textContent = on ? 'connected' : 'no connection';
+  }
+
+  // ---------- tabs ----------
+  each(all('.tab'), function (t) {
+    t.onclick = function () {
+      each(all('.tab'), function (x) { x.classList.remove('active'); });
+      each(all('.panel'), function (x) { x.classList.remove('active'); });
+      t.classList.add('active');
+      $(t.getAttribute('data-tab')).classList.add('active');
+    };
+  });
+
+  // ---------- message ----------
+  function numBoards() { return (S.state && S.state.numBoards) || 1; }
+  function laidOut(text) { return text.replace(/\{[a-z]+\}/gi, '#').length; }
+  function updateCharCount() {
+    var n = laidOut($('msgText').value.replace(/\s+$/, ''));
+    var b = numBoards();
+    var h = $('charHint');
+    h.textContent = n + ' / ' + b + ' boards' + (n > b ? ' - extra characters are dropped' : '');
+    h.className = 'hint' + (n > b ? ' over' : '');
+  }
+  $('msgText').addEventListener('input', updateCharCount);
+
+  function insertSymbol(token) {
+    var ta = $('msgText');
+    var sym = SYM[token] || '';
+    var start = ta.selectionStart, end = ta.selectionEnd, text = ta.value;
+    if (typeof start !== 'number') { start = end = text.length; }
+    ta.value = text.substring(0, start) + sym + text.substring(end);
+    ta.selectionStart = ta.selectionEnd = start + sym.length;
+    ta.focus();
+    updateCharCount();
+  }
+  each(all('.symbol-btn'), function (b) {
+    b.onclick = function () { insertSymbol(b.getAttribute('data-sym')); };
+  });
+
+  $('sendBtn').onclick = function () {
+    if (inflight) return;
+    var text = $('msgText').value.replace(/\s+$/, '');
+    inflight = true;
+    $('sendBtn').disabled = true;
+    sendCmd({ cmd: 'msg', text: text }, function (d) {
+      inflight = false;
+      $('sendBtn').disabled = false;
+      if (d && d.ok) {
+        lastCfgText = d.text;
+        if (typeof d.text === 'string') $('msgText').value = d.text;
+        updateCharCount();
+        toast('Sent (' + d.chars + ' chars)', true);
+      }
+    });
+  };
+
+  // ---------- look ----------
+  function markSwatch(hex, rainbow) {
+    each(all('.swatch'), function (s) {
+      var on = rainbow ? !!s.getAttribute('data-rainbow') : (s.getAttribute('data-hex') === hex);
+      s.classList.toggle('active', on);
+    });
+  }
+  function setColor(hex) {
+    hex = hex.replace('#', '').toUpperCase();
+    markSwatch(hex, false);
+    $('colorPicker').value = '#' + hex;
+    sendCmd({ cmd: 'color', hex: hex }, applyReplyLook);
+  }
+  function applyReplyLook(d) {
+    if (!d || !d.ok) return;
+    if (S.cfg) {
+      if (d.color !== undefined) S.cfg.color = d.color;
+      if (d.rainbow !== undefined) S.cfg.rainbow = d.rainbow;
+      if (d.bri !== undefined) S.cfg.bri = d.bri;
+      if (d.briEff !== undefined) S.cfg.briEff = d.briEff;
+      if (d.fx !== undefined) S.cfg.fx = d.fx;
+      if (d.speed !== undefined) S.cfg.speed = d.speed;
+    }
+    if (d.bri !== undefined) briLabel(d.bri, d.briEff);
+    if (d.fx !== undefined) markFx(d.fx);
+    if (d.rainbow !== undefined || d.color !== undefined) markSwatch(d.color, d.rainbow);
+  }
+  each(all('.swatch'), function (s) {
+    s.onclick = function () {
+      if (s.getAttribute('data-rainbow')) {
+        markSwatch(null, true);
+        sendCmd({ cmd: 'color', rainbow: true }, applyReplyLook);
+      } else {
+        setColor(s.getAttribute('data-hex'));
+      }
+    };
+  });
+  $('colorPicker').onchange = function () { setColor(this.value); };
+
+  function briLabel(v, eff) {
+    $('briVal').textContent = v + '%' + (eff !== undefined && eff < v ? ' (effective ' + eff + '%)' : '');
+  }
+  $('briSlider').oninput = function () {
+    var v = parseInt(this.value, 10);
+    briTouched = Date.now();
+    briLabel(v, S.cfg && S.cfg.briEff !== undefined ? Math.min(S.cfg.briEff, v) : undefined);
+    clearTimeout(briT);
+    briT = setTimeout(function () { sendCmd({ cmd: 'bri', v: v }, applyReplyLook); }, 300);
+  };
+
+  function currentFx() {
+    var a = document.querySelector('.segment.active');
+    return a ? a.getAttribute('data-fx') : 'static';
+  }
+  function markFx(name) {
+    each(all('.segment'), function (x) { x.classList.toggle('active', x.getAttribute('data-fx') === name); });
+  }
+  each(all('.segment'), function (seg) {
+    seg.onclick = function () {
+      var name = seg.getAttribute('data-fx');
+      markFx(name);
+      sendCmd({ cmd: 'fx', name: name, speed: parseInt($('speedSlider').value, 10) }, applyReplyLook);
+    };
+  });
+  $('speedSlider').oninput = function () {
+    var v = parseInt(this.value, 10);
+    speedTouched = Date.now();
+    $('speedVal').textContent = v + ' ms';
+    clearTimeout(speedT);
+    speedT = setTimeout(function () { sendCmd({ cmd: 'fx', name: currentFx(), speed: v }, applyReplyLook); }, 300);
+  };
+
+  // ---------- boards ----------
+  (function fillBoardsSelect() {
+    var sel = $('boardsCount');
+    for (var i = 0; i <= 10; i++) {
+      var o = document.createElement('option');
+      o.value = i; o.textContent = i === 0 ? 'Auto' : i + (i === 1 ? ' board' : ' boards');
+      sel.appendChild(o);
+    }
+  })();
+  $('boardsCount').onchange = function () {
+    var n = parseInt(this.value, 10);
+    sendCmd({ cmd: 'boards', n: n }, function (d) { if (d && d.ok) pollState(); });
+  };
+  $('identifyAll').onclick = function () {
+    sendCmd({ cmd: 'identify', pos: 255, ms: 3000 }, function (d) { if (d && d.ok) toast('Identifying all boards', true); });
+  };
+  $('resetOrder').onclick = function () {
+    if (!confirm('Reset board order? Every node forgets its position and must be power-cycled or claimed again.')) return;
+    sendCmd({ cmd: 'reset_order' }, function (d) { if (d && d.ok) { toast('Order reset', true); pollState(); } });
+  };
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function renderBoards() {
+    var grid = $('boardGrid');
+    grid.innerHTML = '';
+    var boards = (S.state && S.state.boards) || [];
+    if (!boards.length) { grid.appendChild(el('div', 'hint', 'No boards yet.')); return; }
+    each(boards, function (b) {
+      var card = el('div', 'board-card ' + (b.online ? 'online' : 'offline'));
+      var top = el('div', 'top');
+      top.appendChild(el('span', 'pos', String(b.pos)));
+      if (b.self) top.appendChild(el('span', 'badge', 'HUB'));
+      top.appendChild(el('span', 'st', b.online ? 'online' : 'offline'));
+      card.appendChild(top);
+      card.appendChild(el('div', 'info', (b.id || '') + '  ' + (b.mac || '')));
+      card.appendChild(el('div', 'info', 'rssi ' + b.rssi + ' dBm  age ' + (b.age < 0 ? '-' : b.age + ' s') + (b.mv ? '  ' + b.mv + ' mV' : '')));
+      card.appendChild(el('div', 'chr', 'char: ' + (b['char'] ? b['char'] : '(blank)')));
+      var act = el('div', 'actions');
+      var idb = el('button', 'btn secondary', 'Identify');
+      idb.onclick = function () { sendCmd({ cmd: 'identify', pos: b.pos, ms: 3000 }, function (d) { if (d && d.ok) toast('Identifying board ' + b.pos, true); }); };
+      act.appendChild(idb);
+      if (!b.online && !b.self) {
+        var fb = el('button', 'btn danger', 'Forget');
+        fb.onclick = function () {
+          if (!confirm('Forget board ' + b.pos + ' (' + b.id + ')?')) return;
+          sendCmd({ cmd: 'forget', pos: b.pos }, function (d) { if (d && d.ok) { toast('Board ' + b.pos + ' forgotten', true); pollState(); } });
+        };
+        act.appendChild(fb);
+      }
+      card.appendChild(act);
+      grid.appendChild(card);
+    });
+  }
+
+  // ---------- settings ----------
+  $('saveName').onclick = function () {
+    var v = $('apName').value.replace(/^\s+|\s+$/g, '');
+    sendCmd({ cmd: 'name', v: v }, function (d) { if (d && d.ok) toast('Saved: ' + d.name + ' (applies after reboot)', true); });
+  };
+  $('sendRaw').onclick = function () {
+    var txt = $('rawCmd').value;
+    var obj;
+    try { obj = JSON.parse(txt); } catch (e) { addLog('JSON error: ' + e.message); toast('Invalid JSON', false); return; }
+    sendCmd(obj, function (d) { if (d && d.ok && obj.cmd === 'get') pollState(); });
+  };
+
+  function fmtUptime(s) {
+    s = s || 0;
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return (h ? h + 'h ' : '') + (h || m ? m + 'm ' : '') + sec + 's';
+  }
+
+  // ---------- state poll ----------
+  function applyState(d) {
+    if (!d || !d.cfg || !d.state) return;
+    S = d;
+    var cfg = d.cfg, st = d.state;
+    setConn(true);
+
+    // Message: only overwrite the textarea when the user has not edited it
+    var ta = $('msgText');
+    if (cfg.text !== lastCfgText) {
+      if (lastCfgText === null ? ta.value === '' : ta.value === lastCfgText) ta.value = cfg.text;
+      lastCfgText = cfg.text;
+    }
+    updateCharCount();
+
+    // Look
+    if (cfg.color && /^[0-9A-Fa-f]{6}$/.test(cfg.color)) {
+      var cp = $('colorPicker');
+      if (cp !== document.activeElement) cp.value = '#' + cfg.color;
+    }
+    markSwatch(cfg.color, !!cfg.rainbow);
+    if (Date.now() - briTouched > 1500) { $('briSlider').value = cfg.bri; briLabel(cfg.bri, cfg.briEff); }
+    markFx(cfg.fx);
+    if (Date.now() - speedTouched > 1500) { $('speedSlider').value = cfg.speed; $('speedVal').textContent = cfg.speed + ' ms'; }
+
+    // Boards
+    var sel = $('boardsCount');
+    sel.options[0].textContent = 'Auto (' + st.numBoards + ')';
+    if (sel !== document.activeElement) sel.value = cfg.boardsAuto ? 0 : cfg.boards;
+    $('boardsHint').textContent = (cfg.boardsAuto ? 'Auto: highest assigned position = ' : 'Pinned to ') + st.numBoards +
+      ' · next free position ' + st.nextPos;
+    renderBoards();
+
+    // Settings
+    var ap = $('apName');
+    if (cfg.name !== lastName) {
+      if (lastName === null ? ap.value === '' : ap.value === lastName) ap.value = cfg.name;
+      lastName = cfg.name;
+    }
+    $('status').textContent = 'SSID ' + cfg.name + ' · fw ' + cfg.fw + ' · hub ' + (st.hubState || '') +
+      '\nheap ' + st.heap + ' B · uptime ' + fmtUptime(st.uptime) + ' · clients ' + st.clients;
+  }
+
+  function pollState() {
+    if (polling) return;
+    polling = true;
+    fetchJson('/state', { method: 'GET', cache: 'no-store' }, function (d) { polling = false; applyState(d); },
+      function () { polling = false; setConn(false); });
+  }
+
+  function isTextField(t) {
+    if (!t || !t.tagName) return false;
+    var tag = t.tagName.toUpperCase();
+    return tag === 'TEXTAREA' || (tag === 'INPUT' && (t.type === 'text' || t.type === 'search'));
+  }
+  document.addEventListener('focusin', function (e) { if (isTextField(e.target)) focusedText = true; });
+  document.addEventListener('focusout', function (e) { if (isTextField(e.target)) focusedText = false; });
+
+  pollState();
+  setInterval(function () { if (!focusedText) pollState(); }, 2000);
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 # Arduino / build
 build/
+firmware/**/build/
 *.bin
 *.elf
 *.map

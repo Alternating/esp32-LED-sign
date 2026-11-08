@@ -18,7 +18,7 @@ typedef void (*RxHandler)(const uint8_t* srcMac, const uint8_t* buf, uint8_t len
 
 extern const uint8_t BCAST[6];
 
-bool beginHub();                 // WIFI_AP_STA + softAP pinned to ESPNOW_CHANNEL
+bool beginHub(const char* ssid); // WIFI_AP_STA + softAP(ssid) pinned to ESPNOW_CHANNEL — the ONLY softAP call
 bool beginNode();                // WIFI_STA + esp_wifi_set_channel
 void setHandler(RxHandler fn);
 
@@ -30,6 +30,7 @@ void addPeer(const uint8_t* mac);   // idempotent
 void pump();                        // call every ~5 ms from the net task only
 
 bool           channelOk();
+const char*    apSsid();            // SSID the hub AP was started with ("" on a node)
 const uint8_t* myMac();
 void           macToStr(const uint8_t* mac, char* out18);   // "AA:BB:CC:DD:EE:FF"
 

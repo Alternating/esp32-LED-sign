@@ -97,11 +97,15 @@ static bool finishInit(bool hub) {
   return true;
 }
 
-bool beginHub() {
+static char apSsidBuf[33] = "";
+
+bool beginHub(const char* ssid) {
+  if (!ssid || !ssid[0]) ssid = AP_SSID;
+  strncpy(apSsidBuf, ssid, sizeof(apSsidBuf) - 1);
   WiFi.persistent(false);
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(AP_SSID, AP_PASS, ESPNOW_CHANNEL, 0, 2);
-  Serial.printf("[RADIO] SoftAP %s at %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
+  WiFi.softAP(apSsidBuf, AP_PASS, ESPNOW_CHANNEL, 0, 2);
+  Serial.printf("[RADIO] SoftAP %s at %s\n", apSsidBuf, WiFi.softAPIP().toString().c_str());
   return finishInit(true);
 }
 
@@ -262,6 +266,7 @@ bool channelOk() {
 }
 
 const uint8_t* myMac() { return macSelf; }
+const char*    apSsid() { return apSsidBuf; }
 
 void macToStr(const uint8_t* mac, char* out) {
   snprintf(out, 18, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);

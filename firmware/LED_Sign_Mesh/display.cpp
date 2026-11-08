@@ -62,6 +62,33 @@ void setCornerDot(bool on, CRGB color) {
   leds[ledIndex(0, MATRIX_WIDTH - 1, mirror)] = on ? color : CRGB::Black;
 }
 
+CRGB styled(uint8_t r, uint8_t g, uint8_t b, uint8_t bri, uint8_t effect, uint16_t periodMs, uint32_t hubNowMs) {
+  if (periodMs < 50) periodMs = 500;
+  CRGB c(r, g, b);
+  switch (effect) {
+    case 1:                                                   // blink: on/off every period
+      if ((hubNowMs / periodMs) & 1) return CRGB::Black;
+      break;
+    case 2: {                                                 // fade: triangle 30..100 % over the period
+      uint32_t half = periodMs / 2;
+      uint32_t ph = hubNowMs % periodMs;
+      uint32_t tri = ph < half ? ph : periodMs - ph;
+      uint8_t lvl = (uint8_t)(77 + (uint32_t)178 * tri / half);
+      c.nscale8(lvl);
+      break;
+    }
+    case 3: {                                                 // cycle: hue steps 5 per period
+      uint8_t hue = (uint8_t)((hubNowMs / periodMs) * 5);
+      c = CHSV(hue, 255, 255);
+      break;
+    }
+    default: break;
+  }
+  if (bri > 100) bri = 100;
+  if (bri < 100) c.nscale8((uint8_t)((uint16_t)bri * 255 / 100));
+  return c;
+}
+
 uint8_t pulseLevel() { return beatsin8(20, 40, 160); }   // 20 BPM, dim breathing
 
 CRGB scaled(CRGB c, uint8_t scale) { c.nscale8(scale); return c; }
