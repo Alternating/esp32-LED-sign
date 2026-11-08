@@ -3,11 +3,13 @@
 Tracking file per project rules. Newest log entries at top.
 
 ## Status
-- **Phase:** 0 complete for radio (all gates passed); flicker/range are observational follow-ups. **Ready for Phase 1.**
+- **Phase:** 1 — step 1 (radio + numbering) verified. Next: step 2 word sequencer + Show styling, step 3 web transport/UI.
 - **Active agent:** Orchestrator (Claude session 2026-11-08); research + planning agents on Standby
 - **Blocker cleared:** `character_patterns.h` extended to 68 glyphs; ready for Phase 0.
 
 ## Log
+- 2026-11-08 — **Phase 1 step 1 VERIFIED on hardware (A1–A7 all PASS).** `firmware/LED_Sign_Mesh/`: protocol, ESP-NOW radio layer (ring buffer → pump → handler, seq stamping, ACK retries, per-MAC dedupe), NVS storage, display, buttons, hub/node state machines with sticky MAC→position numbering, serial console. Evidence in `docs/reviews/STEP1_VERIFICATION.md`: node DISCOVER→pos 2 in 40 ms, SHOW_POSITION 3.0 s, LOST_HUB at 5.0 s / recovery 1.6 s, reset-order + claim cycle correct, 10-min soak Δheap 0 B both boards, 0 rx drops. Build 983 kB / 52 kB RAM.
+- 2026-11-08 — Pipeline run: Qwen draft (9.6k tok, 223 s) → review agent (45 findings: 14 blocking/17 major/14 minor) → refactor agent (clean `--warnings all` build) → verification agent. Documented in `docs/HOWTO_build_pipeline.md`. Hub bench board swapped for a real sign: hub MAC now 9C:9C:1F:E3:CE:54 (node 78:E3:6D:19:18:38).
 - 2026-11-08 — Phase 0 phone-on-AP gate passed: owner joined `LEDSIGN-BENCH`, loaded the hub page; 12.6 min run 3795/3791 = 0.1 % loss, RTT avg 6.2 ms (max 58 ms under phone traffic), heap stable. **Phase 0 radio gates all PASSED.** Open: flicker eyeball, 5 m range.
 - 2026-11-08 — Repo pushed to GitHub (`Alternating/esp32-LED-sign`). Qwen box cloned at `~/esp32-led-sign` = primary build/flash station (two LOLIN32s on ttyUSB0/1). Windows folder `Code\esp32-LED-sign` is a clone. File shuttling retired; flow is commit/push → `git pull` on the box.
 - 2026-11-08 — Local LLM (Ollama on the Qwen box) wired up as a tool via `tools/ask_local_llm.py`; 27b-q4 runs ~29 tok/s on the R9700. Usage rule in `tools/README.md`: drafts only, verify on hardware (its first answer contradicted a bench result).
@@ -40,4 +42,5 @@ Tracking file per project rules. Newest log entries at top.
 8. Word-group sequencing only, or also scrolling text across boards?
 
 ## Framework Improvement Notes
+- Pipeline lesson (step 1): the local LLM draft compiled 0/15 files clean and had 14 blocking logic gaps, yet gave the review/refactor agents a complete skeleton with the right file layout and protocol structs — net positive, but never skip the review stage. Verification anomalies to fold into step 2: node `s` should print the rendered char; log hub same-pos re-ASSIGN suppression and node ACKs.
 See `docs/PROJECT_PLAN.md` §10 — 13 drift items logged with protocol fixes. Key fix: future research briefs must include a "Conflicts with sibling report" section and name decision criteria up front.
