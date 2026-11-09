@@ -146,12 +146,17 @@ def main():
     known = list_serial()
     while True:
         say("")
-        input(f"Plug in the {'HUB' if mode == 'hub' else 'next'} board over USB, then press Enter to flash it as {mode.upper()} ... ")
+        try:
+            input(f"Plug in the {'HUB' if mode == 'hub' else 'next'} board over USB, then press Enter to flash it as {mode.upper()} ... ")
+        except EOFError:
+            break
         port = None
         while port is None:
             time.sleep(1.0)
             port = pick_port(known)
-            if port is None: input("  press Enter to rescan ... ")
+            if port is None:
+                try: input("  press Enter to rescan (Ctrl-C to quit) ... ")
+                except EOFError: sys.exit("no board found")
         fn, off = IMAGES[mode]
         if not flash(port, os.path.join(rel, fn), off):
             if ask("  retry this board?", default="y") == "y": continue
