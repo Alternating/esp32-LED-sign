@@ -26,7 +26,18 @@ A **dedicated board**, not whichever powers on first. The hub role is a flag sav
 - Current hub: MAC `9C:9C:1F:E3:CE:54`. It is always position **1** and runs the `LEDSIGN-HUB` Wi-Fi that phones join.
 - Power-on order only numbers the **nodes**: first node powered after the hub gets 2, the next 3, … Positions stick by MAC until cleared (hub K3 long-press ≥ 3 s, or **Reset order** in the Boards tab), then power the boards on again in the order you want.
 - To make a different board the hub: hold **K4 while applying power** (~3 s) → it shows "H" and saves the role; flip the old hub back the same way (shows "N"). Boards without buttons: send `H`/`N` over serial in the first 3 s after reset. Only one hub should be powered at a time.
-- Flashing: use `firmware/LED_Sign_Mesh/build/esp32.esp32.lolin32/LED_Sign_Mesh.ino.merged.bin` at offset `0x0`, 115200 baud (`tools/flash_board.sh /dev/ttyUSBx` on the build box). Flashing does not erase NVS, so roles and positions survive updates.
+## Firmware images — three files, clearly labeled
+One source tree builds one program; the **role is pre-seeded in the settings partition** of the install images so a board is a hub or a node from its very first boot. `tools/make_images.sh` (build box) writes them to `release/<commit>/` with a README and SHA256SUMS:
+
+| file | flash to | offset | effect |
+|---|---|---|---|
+| `LED_Sign_HUB_install.bin` | **the one hub board** | `0x0` | full install, role = HUB, settings wiped |
+| `LED_Sign_NODE_install.bin` | every other board | `0x0` | full install, role = NODE, settings wiped |
+| `LED_Sign_update_app.bin` | any board, later updates | `0x10000` | app only — keeps role, positions, message |
+
+Build box: `tools/flash_board.sh /dev/ttyUSBx hub|node|update` (flashes at 115200 and prints the boot banner, which states the role and MAC).
+Windows: `esptool --chip esp32 --port COMx --baud 115200 write-flash -z <offset> <file>`.
+Never flash the HUB image onto more than one powered board. Re-numbering after a NODE install: the hub remembers the board's MAC, so it gets its old position back unless you reset the order.
 
 ## Next step
 Answer the open questions in `Progress.md`, then Phase 0 bench test (two boards, ESP-NOW ping, flicker check). `character_patterns.h` must be added to the repo first.
