@@ -35,7 +35,10 @@ def say(msg): print(msg, flush=True)
 def ask(prompt, choices=("y", "n"), default=None):
     hint = "/".join(c.upper() if c == default else c for c in choices)
     while True:
-        a = input(f"{prompt} [{hint}] ").strip().lower()
+        try:
+            a = input(f"{prompt} [{hint}] ").strip().lower()
+        except EOFError:
+            say(""); return default or choices[-1]
         if not a and default: return default
         if a in choices: return a
         say(f"  please answer one of: {', '.join(choices)}")
@@ -52,7 +55,14 @@ def esptool_cmd():
     return [sys.executable, "-m", "esptool"]
 
 def list_serial():
-    return sorted(p.device for p in list_ports.comports())
+    """USB serial adapters only (CH340/CP210x…): skip the legacy ttyS* / onboard ports."""
+    ports = set()
+    for p in list_ports.comports():
+        usb = p.vid is not None or "USB" in p.device.upper() or "ACM" in p.device.upper() or p.device.upper().startswith("COM")
+        if usb: ports.add(p.device)
+    for d in glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*") + glob.glob("/dev/cu.usbserial*") + glob.glob("/dev/cu.wchusbserial*"):
+        ports.add(d)
+    return sorted(ports)
 
 def pick_port(known_before):
     """Auto-pick the port that appeared since `known_before`; otherwise ask."""
@@ -69,6 +79,7 @@ def pick_port(known_before):
         a = input("  which one? (number, or Enter to rescan) ").strip()
         if not a: return None
         if a.isdigit() and 1 <= int(a) <= len(now): return now[int(a) - 1]
+        say("  not a valid number")
 
 def flash(port, image, offset):
     cmd = esptool_cmd() + ["--chip", "esp32", "--port", port, "--baud", "115200",
