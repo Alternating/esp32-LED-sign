@@ -95,3 +95,12 @@ Hub state recorded before the wired install (`s`): text `"HI AMELIA {heart} LUV 
 - Node: `role=NODE pos=2 state=RUNNING`, `fw 0.4.0 (git 387ea87) buildId bfc0e847 slot app1 valid=1`, `show: color=00FF00 … word=0/3 wspeed=2000`, mirror 0.
 - Both boards run the committed `387ea87` image, installed over the air into app1 and confirmed. app0 on both holds `2e198f3a` (0.4.2-test), which is valid and would only be used by a future rollback.
 - Box: our `wpa_supplicant` (pid file `/run/wpa_p4.pid`) was killed, the `wlp3s0` address flushed and the link set down. The only remaining `wpa_supplicant` is the system D-Bus instance (pid 1336), which was there before. Routes = start (`default via 192.168.1.1 dev enp5s0`, `192.168.1.0/24`). DNS = start (`enp5s0` 192.168.1.1 / 1.1.1.1). `getent hosts github.com` → `140.82.112.3`. No capture processes are left. Test images and logs stay in `~/p4/` on the box (not in the repo).
+
+
+## D1 fix verification (commit e84e72b, release `release/e84e72b/`, 2026-11-09)
+Fix: `hub::begin()` re-registers every table MAC as an ESP-NOW peer after loading the table; HB from a node also (idempotently) re-adds its peer; immediate `esp_now_send` failures are logged with the error name.
+Deployed **over the air** with the new `tools/ota_rollout.sh` (box joins the AP on wlp3s0, static IP, cleans up after):
+- hub before `bfc0e847 / 387ea87 / app1 valid` → upload 1 137 264 B (41 s this run) → reboot → `05eab0ef / e84e72b / app0 valid`.
+- `ota_nodes` issued **immediately, no node reset** → `queued 1` → pos 2 joining → 10/40/70 % → rebooting → **done at +22 s**; both boards report fw `05eab0ef`. (Before the fix this exact sequence failed 3/3 with `give up … type=14`.)
+- Post-reboot unicast checks: identify pos 2 **5/5**, SETMIRROR on/off round-trip OK.
+**D1 closed. Phase 4 O1–O10 all PASS.** D2/D3 remain minor (logged above).
