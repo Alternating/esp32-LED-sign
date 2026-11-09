@@ -206,6 +206,28 @@ static bool cmdName(JsonDocument& cmd, JsonDocument& reply) {
   return true;
 }
 
+// ---- ota_nodes: queue every online node whose buildId != the hub's (Phase 4) ----
+static bool cmdOtaNodes(JsonDocument&, JsonDocument& reply) {
+  uint8_t queued, skipped; const char* err;
+  if (!hub::otaNodes(queued, skipped, err)) return fail(reply, err);
+  reply["queued"] = queued;
+  reply["skipped"] = skipped;
+  return true;
+}
+
+// ---- ota_node: pos 2..10 (pos 1 is the hub itself: upload to POST /ota instead) ----
+static bool cmdOtaNode(JsonDocument& cmd, JsonDocument& reply) {
+  if (!cmd["pos"].is<int>()) return fail(reply, "bad_arg");
+  int pos = cmd["pos"].as<int>();
+  if (pos == 1) return fail(reply, "hub_use_ota_upload");
+  if (pos < 2 || pos > MAX_BOARDS) return fail(reply, "bad_arg");
+  const char* err;
+  if (!hub::otaNode((uint8_t)pos, err)) return fail(reply, err);
+  reply["pos"] = pos;
+  reply["queued"] = 1;
+  return true;
+}
+
 bool handle(JsonDocument& cmd, JsonDocument& reply, bool isHub) {
   const char* c = str(cmd, "cmd");
   if (!c) return fail(reply, "bad_cmd");
@@ -225,6 +247,9 @@ bool handle(JsonDocument& cmd, JsonDocument& reply, bool isHub) {
   if (!strcmp(c, "mirror"))      return cmdMirror(cmd, reply);
   if (!strcmp(c, "name"))        return cmdName(cmd, reply);
   if (!strcmp(c, "save"))        { hub::saveNow(); return true; }
+  if (!strcmp(c, "ota_nodes"))   return cmdOtaNodes(cmd, reply);
+  if (!strcmp(c, "ota_node"))    return cmdOtaNode(cmd, reply);
+  if (!strcmp(c, "ota_cancel"))  { reply["dropped"] = hub::otaCancel(); return true; }
   return fail(reply, "bad_cmd");
 }
 

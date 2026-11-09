@@ -1,5 +1,7 @@
 #include "transport_web.h"
 #include "hub.h"
+#include "ota.h"
+#include "radio_espnow.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -15,6 +17,12 @@
 // x-www-form-urlencoded from a bare `curl -d '{...}'` (the WebServer's form parser would drop
 // a field without '='). Capped at CMD_MAX_BODY. Every /cmd reply is HTTP 200; errors are in
 // the JSON ("bad_json" = unparseable/oversize body, "bad_cmd", "bad_arg", "hub_only").
+//
+// POST /ota (Phase 4): multipart upload of LED_Sign_ota.bin into the inactive app slot. The chunk callback
+// drives ota::upload*() (Update) and pumps the radio between chunks so the mesh keeps its Shows during the
+// ~10-20 s transfer (we ARE the net task, so radio::pump() is legal here). Refused while a node OTA is
+// queued/in flight. Reply {"ok","size","err"}; on success the reboot is armed for +1 s and happens in
+// ota::tick() on core 1, after the reply has been sent. GET /ota returns the /state.ota object.
 
 namespace transport_web {
 
@@ -55,7 +63,7 @@ static void handleState() {
   noteRequest();
   JsonDocument doc;
   hub::buildState(doc.to<JsonObject>());
-  String out; out.reserve(1536);
+  String out; out.reserve(2560);
   serializeJson(doc, out);
   jsonHeaders();
   server.send(200, "application/json", out);
@@ -104,6 +112,56 @@ static void handleCmd() {
   Serial.printf("[WEB] POST /cmd %.120s -> %.160s\n", body.c_str(), out.c_str());
 }
 
+static void otaChunk() {
+  HTTPUpload& up = server.upload();
+  switch (up.status) {
+    case UPLOAD_FILE_START:
+      noteRequest();
+      Serial.printf("[WEB] POST /ota \"%s\" from %s\n", up.filename.c_str(), server.client().remoteIP().toString().c_str());
+      ota::uploadBegin(hub::otaBusy() ? "node update in progress" : nullptr);
+      break;
+    case UPLOAD_FILE_WRITE:
+      ota::uploadWrite(up.buf, up.currentSize);
+      radio::pump();
+      break;
+    case UPLOAD_FILE_END:
+      ota::uploadEnd(up.totalSize);
+      break;
+    case UPLOAD_FILE_ABORTED:
+      ota::uploadAbort();
+      break;
+    default:
+      break;
+  }
+}
+
+static void otaDone() {
+  uint32_t bytes; const char* err;
+  bool ok = ota::uploadResult(bytes, err);
+  JsonDocument reply;
+  reply["ok"] = ok;
+  reply["size"] = bytes;
+  reply["err"] = err;
+  if (ok) reply["note"] = "rebooting in 1 s";
+  String out;
+  serializeJson(reply, out);
+  jsonHeaders();
+  server.sendHeader("Connection", "close");
+  server.send(200, "application/json", out);
+  Serial.printf("[WEB] POST /ota -> %s\n", out.c_str());
+  if (ok) ota::requestReboot(1000);
+}
+
+static void handleOtaGet() {
+  noteRequest();
+  JsonDocument doc;
+  hub::buildOta(doc.to<JsonObject>());
+  String out;
+  serializeJson(doc, out);
+  jsonHeaders();
+  server.send(200, "application/json", out);
+}
+
 static void handleNotFound() {
   Serial.printf("[WEB] %s %s -> 302 /\n", server.method() == HTTP_POST ? "POST" : "GET", server.uri().c_str());
   redirectRoot();
@@ -117,6 +175,8 @@ struct WebTransport : public Transport {
     server.on("/index.html", HTTP_GET, handleRoot);
     server.on("/cmd", HTTP_POST, handleCmd, cmdBodyChunk);
     server.on("/state", HTTP_GET, handleState);
+    server.on("/ota", HTTP_POST, otaDone, otaChunk);
+    server.on("/ota", HTTP_GET, handleOtaGet);
     static const char* const PROBES[] = { "/generate_204", "/gen_204", "/hotspot-detect.html", "/library/test/success.html",
                                           "/connecttest.txt", "/ncsi.txt", "/fwlink", "/redirect", "/success.txt",
                                           "/canonical.html", "/check_network_status.txt" };

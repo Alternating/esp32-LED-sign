@@ -41,6 +41,18 @@ bool forgetPos(uint8_t pos);                          // drop row, save, unicast
 void nextGroup();                                     // serial 'n': advance to the next word group now (core 1)
 void printStatus();
 
+// OTA queue (Phase 4, review §R3). Callable from any core; the queue lives under tMux, tick() drives it.
+// otaNodes(): queue every ONLINE node whose buildId differs from ours (unknown 00000000 counts as different).
+// otaNode(pos): queue one. otaCancel(): drop the queued rows; the node in flight finishes or times out.
+// err (on false): "busy" (hub upload running), "no_image" (image length unknown), "bad_arg", "offline",
+// "up_to_date", "queued" (already queued / in flight).
+bool otaNodes(uint8_t& queued, uint8_t& skipped, const char*& err);
+bool otaNode(uint8_t pos, const char*& err);
+uint8_t otaCancel();                                  // returns the number of queued rows dropped
+bool otaBusy();                                       // a node OTA is queued or in flight (POST /ota refuses)
+void buildOta(JsonObject o);                          // the /state.ota object (also GET /ota)
+bool healthy();                                       // rollback confirm: RUNNING + AP up + channel 6
+
 HubState    state();
 const char* stateName(HubState s);
 uint8_t     nextPos();

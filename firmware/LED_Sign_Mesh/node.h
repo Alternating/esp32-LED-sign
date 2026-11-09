@@ -7,7 +7,7 @@
 
 namespace node {
 
-enum class NodeState : uint8_t { BOOT, DISCOVER, SHOW_POSITION, RUNNING, LOST_HUB, UNASSIGNED };
+enum class NodeState : uint8_t { BOOT, DISCOVER, SHOW_POSITION, RUNNING, LOST_HUB, UNASSIGNED, OTA };
 
 void begin();                      // load pos, enter DISCOVER, register gestures
 void tick();                       // core 1: timers, HELLO/HB sending, state timeouts
@@ -18,6 +18,7 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
 void onClaim();                    // K1 long / 'c': CLAIM broadcast, -> DISCOVER
 void onForget();                   // K2 long: FORGET, clear NVS, -> UNASSIGNED
 void printStatus();
+bool healthy();                    // rollback confirm: radio on channel 6 and RUNNING reached (or DISCOVERing)
 
 NodeState   state();
 const char* stateName(NodeState s);

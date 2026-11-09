@@ -104,7 +104,7 @@ bool beginHub(const char* ssid) {
   strncpy(apSsidBuf, ssid, sizeof(apSsidBuf) - 1);
   WiFi.persistent(false);
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(apSsidBuf, AP_PASS, ESPNOW_CHANNEL, 0, 2);
+  WiFi.softAP(apSsidBuf, AP_PASS, ESPNOW_CHANNEL, 0, AP_MAX_CONN);   // hidden=0, max_conn 4 (Phase 4)
   Serial.printf("[RADIO] SoftAP %s at %s\n", apSsidBuf, WiFi.softAPIP().toString().c_str());
   return finishInit(true);
 }

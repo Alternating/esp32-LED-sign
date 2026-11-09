@@ -1,5 +1,5 @@
 // transport_web.h — HTTP (core WebServer, port 80) + DNSServer captive portal on the hub's
-// SoftAP (step-3 brief item 2). Never touches Wi-Fi mode or the AP: radio::beginHub() owns
+// SoftAP (step-3 brief item 2). Phase 4 adds POST /ota (hub image upload) and GET /ota (OTA status). Never touches Wi-Fi mode or the AP: radio::beginHub() owns
 // that (channel 6). Routes: GET / (gzipped index.html from PROGMEM), POST /cmd (JSON ->
 // commands), GET /state (hub::buildState), captive-portal probes -> 302 http://192.168.4.1/.
 #ifndef TRANSPORT_WEB_H

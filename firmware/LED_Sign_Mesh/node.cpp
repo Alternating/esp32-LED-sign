@@ -5,6 +5,7 @@
 #include "display.h"
 #include "buttons.h"
 #include "battery.h"
+#include "ota.h"
 #include <string.h>
 
 // State machine (plan §3.2):
@@ -29,6 +30,14 @@
 // or the pending seq is ignored. A newer Show with applyAtHubMs 0 or already past applies at
 // once; otherwise it waits in `pending` and render() swaps it in when hubNow() >= applyAtHubMs.
 // Applying a Show drops a pending one that is not newer than it.
+//
+// OTA (Phase 4, review §R2): OTA_ENTER (core 0) is validated, ACKed and copied into otaReq under otaMux;
+// nothing else happens on the radio task. tick() (core 1) enters NodeState::OTA (no HELLO/HB, LOST_HUB
+// timer suspended), waits 150 ms so the pump can send the ACK, then ota::nodeStart() spawns the download
+// task (core 0). tick() reports OTA_STATUS every 10 % (unicast to the hub, srcPos = myPos), and on the
+// task's result: OK -> VERIFIED status, full bar for 500 ms, ESP.restart(); FAILED / 100 s backstop ->
+// FAILED status with the reason, back to DISCOVER on the old firmware (the task already disconnected
+// and re-pinned channel 6). In OTA only OTA_ENTER (re-ACK) and SHOW (clock) are processed.
 
 namespace node {
 
@@ -54,6 +63,16 @@ static uint32_t statusLedAt = 0;
 static int8_t   hubRssi = 0;
 static char     renderedChar = 0;
 
+// OTA handover (core 0 -> core 1) and progress (core 1)
+static OtaEnter otaReq;
+static volatile bool otaReqFlag = false;
+static portMUX_TYPE otaMux = portMUX_INITIALIZER_UNLOCKED;
+static bool     otaStarted = false;
+static uint32_t otaStartAt = 0;          // enteredAt + 150 ms (ACK goes out first)
+static uint32_t otaRebootAt = 0;         // 0 = not rebooting
+static uint8_t  otaLastPct = 0;          // last reported decile
+static bool     everRunning = false;     // latched for the rollback health check
+
 // Hub clock: offset = hubMillis - millis(), low-pass filtered. Written on core 0 (onShow),
 // read on core 1 (render); a single aligned 32-bit write, hence volatile is enough.
 static volatile int32_t hubOffset = 0;
@@ -69,6 +88,7 @@ const char* stateName(NodeState s) {
     case NodeState::RUNNING:       return "RUNNING";
     case NodeState::LOST_HUB:      return "LOST_HUB";
     case NodeState::UNASSIGNED:    return "UNASSIGNED";
+    case NodeState::OTA:           return "OTA";
   }
   return "?";
 }
@@ -100,6 +120,7 @@ static void sendHello() {
   Hello m;
   m.h = makeHdr(HELLO, 0, POS_HUB);
   m.nvsPos = myPos; m.fw = FW_VERSION; m.vbat_mV = battery::readMilliVolts(); m.mirror = display::mirror;
+  memcpy(m.buildId, ota::buildId(), 4);
   radio::send(radio::BCAST, &m, sizeof(m), false);
 }
 
@@ -115,6 +136,18 @@ static void sendHb() {
   m.h = makeHdr(HB, myPos, POS_HUB);
   m.vbat_mV = battery::readMilliVolts(); m.rssi = hubRssi; m.shownChar = renderedChar;
   m.state = (uint8_t)st; m.lastShowSeq = haveApplied ? applied.showSeq : 0;
+  memcpy(m.buildId, ota::buildId(), 4);
+  radio::send(hubMac, &m, sizeof(m), false);
+}
+
+static void sendOtaStatus(uint8_t pct, uint8_t state, const char* msg) {
+  if (!hubKnown) return;
+  OtaStatus m;
+  memset(&m, 0, sizeof(m));
+  m.h = makeHdr(OTA_STATUS, myPos, POS_HUB);
+  m.pct = pct; m.state = state;
+  memcpy(m.buildId, ota::buildId(), 4);
+  if (msg) { strncpy(m.msg, msg, sizeof(m.msg) - 1); }
   radio::send(hubMac, &m, sizeof(m), false);
 }
 
@@ -213,9 +246,24 @@ static void onShow(const uint8_t* srcMac, const Show* s, int8_t rssi) {
   if (st == NodeState::LOST_HUB) setState(NodeState::RUNNING);
 }
 
+static void onOtaEnter(const uint8_t* srcMac, const OtaEnter* e) {
+  if (!myPos || e->h.dstPos != myPos) return;               // not for us (or we have no position)
+  learnHub(srcMac);
+  sendAck(OTA_ENTER, e->h.seq);                            // ACK every copy (retries are not deduped)
+  if (st == NodeState::OTA || otaReqFlag) return;          // retry of the one we already took
+  portENTER_CRITICAL(&otaMux);
+  memcpy(&otaReq, e, sizeof(OtaEnter));
+  otaReqFlag = true;
+  portEXIT_CRITICAL(&otaMux);
+}
+
 void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t rssi) {
   const Hdr* h = (const Hdr*)buf;
+  if (st == NodeState::OTA && h->type != OTA_ENTER && h->type != SHOW) return;   // nothing may disturb a download
   switch (h->type) {
+    case OTA_ENTER:
+      if (len >= sizeof(OtaEnter)) onOtaEnter(srcMac, (const OtaEnter*)buf);
+      break;
     case ASSIGN:
       if (len >= sizeof(Assign)) onAssign(srcMac, (const Assign*)buf);
       break;
@@ -315,9 +363,64 @@ void begin() {
   setState(NodeState::DISCOVER);
 }
 
+static void otaTick(uint32_t now) {
+  if (!otaStarted) {
+    if ((int32_t)(now - otaStartAt) < 0) return;
+    otaStarted = true;
+    otaLastPct = 0;
+    ota::nodeReset();
+    if (ota::nodeStart(otaReq)) { sendOtaStatus(0, OTA_ST_JOINING, nullptr); return; }
+  }
+  ota::NodeResult r = ota::nodeResult();
+  if (otaRebootAt) {
+    if ((int32_t)(now - otaRebootAt) >= 0) { Serial.println("[NODE] OTA done, restarting"); Serial.flush(); ESP.restart(); }
+    return;
+  }
+  if (r == ota::NODE_RUNNING) {
+    uint8_t pct = ota::nodePct();
+    if (pct / 10 != otaLastPct / 10) { otaLastPct = pct; sendOtaStatus(pct, ota::nodePhase(), nullptr); }
+    if (now - stateEnteredAt > OTA_NODE_DL_MS + 10000) {    // backstop: the task enforces 90 s itself
+      Serial.println("[NODE] OTA task overran, restarting on the old image");
+      Serial.flush();
+      ESP.restart();                                       // no Update.end(true) happened -> old slot boots
+    }
+    return;
+  }
+  if (r == ota::NODE_OK) {
+    sendOtaStatus(100, OTA_ST_VERIFIED, nullptr);
+    otaRebootAt = now + 500;                               // let the pump send the status; full bar meanwhile
+    return;
+  }
+  // FAILED (or the task could not start)
+  Serial.printf("[NODE] OTA failed: %s -> DISCOVER (old firmware)\n", ota::nodeMsg());
+  sendOtaStatus(ota::nodePct(), OTA_ST_FAILED, ota::nodeMsg());
+  ota::nodeReset();
+  otaStarted = false;
+  setState(NodeState::DISCOVER);
+}
+
+bool healthy() {
+  return radio::channelOk() && (everRunning || st == NodeState::DISCOVER);
+}
+
 void tick() {
   uint32_t now = millis();
+  if (otaReqFlag && st != NodeState::OTA) {
+    portENTER_CRITICAL(&otaMux);
+    otaReqFlag = false;
+    portEXIT_CRITICAL(&otaMux);
+    char hex[9]; ota::buildIdHex(otaReq.buildId, hex);
+    Serial.printf("[NODE] OTA_ENTER -> %s, image %u B, buildId %s\n", otaReq.ssid, (unsigned)otaReq.size, hex);
+    display::identifyStart(0, myPos);                      // cancel a running identify (0 ms = expired)
+    setState(NodeState::OTA);
+    otaStarted = false; otaRebootAt = 0;
+    otaStartAt = now + 150;
+  }
+  if (st == NodeState::RUNNING) everRunning = true;
   switch (st) {
+    case NodeState::OTA:
+      otaTick(now);
+      break;
     case NodeState::DISCOVER: {
       if ((int32_t)(now - nextHelloAt) >= 0) {
         sendHello();
@@ -360,6 +463,7 @@ void tick() {
     case NodeState::DISCOVER:      period = 500; break;
     case NodeState::LOST_HUB:      period = 100; break;
     case NodeState::SHOW_POSITION: period = 250; break;
+    case NodeState::OTA:           period = 50;  break;
     default: break;
   }
   if (st == NodeState::RUNNING) digitalWrite(STATUS_PIN, HIGH);
@@ -368,7 +472,19 @@ void tick() {
 }
 
 // Draw the frame for the current state. Only called from loop() (core 1).
+// OTA: position digit in blue, progress bar on the bottom two rows (glyphs use all 20 rows, so the
+// bar replaces the digit's last two rows: green = done, dim grey = remaining).
+static void renderOta() {
+  display::renderDigit(myPos, CRGB(0, 0, 255));
+  uint8_t pct = otaRebootAt ? 100 : ota::nodePct();
+  int lit = (int)pct * MATRIX_WIDTH / 100;
+  for (int row = MATRIX_HEIGHT - 2; row < MATRIX_HEIGHT; row++)
+    for (int col = 0; col < MATRIX_WIDTH; col++)
+      display::leds[display::ledIndex(row, col, display::mirror)] = col < lit ? CRGB(0, 255, 0) : CRGB(8, 8, 8);
+}
+
 void render() {
+  if (st == NodeState::OTA) { renderOta(); return; }
   if (display::identifyActive()) { display::identifyRender(); return; }
 
   // Scheduled Show due? Swap it in at the hub-clock instant (same test as hub::applyDue()).
@@ -437,6 +553,9 @@ void printStatus() {
                 myPos, stateName(st), hubKnown ? ms : "none", haveApplied ? 1 : 0,
                 haveApplied ? applied.showSeq : 0, (unsigned long)(millis() - lastShowMs), hubRssi, display::mirror,
                 (long)hubOffset);
+  ota::printStatus();
+  if (st == NodeState::OTA)
+    Serial.printf("ota: %s %u %%%s%s\n", otaStarted ? "running" : "starting", ota::nodePct(), ota::nodeMsg()[0] ? " last error: " : "", ota::nodeMsg());
   if (haveApplied)
     Serial.printf("show: color=%02X%02X%02X bri=%u fx=%u period=%u numBoards=%u word=%u/%u wspeed=%u\n",
                   applied.r, applied.g, applied.b, applied.brightness, applied.effect,

@@ -17,7 +17,8 @@
 #define ESPNOW_CHANNEL  6
 #define AP_SSID         "LEDSIGN-HUB"
 #define AP_PASS         "sign1234"
-#define MAX_FRAME       64      // largest protocol frame is Show (40 B)
+#define AP_MAX_CONN     4       // 2 phones + 1 updating node + spare (Phase 4)
+#define MAX_FRAME       128     // largest protocol frame is OtaEnter (94 B); static_asserts in protocol.h
 
 // ---- Timings (ms) ----
 #define POWER_STABILIZE     800
@@ -44,8 +45,18 @@ constexpr uint16_t WORD_LEAD_MS = 300;   // word-advance Show: applyAtHubMs = hu
 #define LONG_PRESS_HUB_MS   3000
 #define FRAME_MS            16      // FastLED.show() pacing (~60 Hz)
 
+// ---- OTA (Phase 4) ----
+#define OTA_PORT              8080      // hub fw server (raw HTTP/1.0, GET /fw.bin), separate from the UI on :80
+#define OTA_NODE_TIMEOUT_MS   120000    // hub: per-node budget, OTA_ENTER -> rejoin with the hub's buildId
+#define OTA_ACK_TIMEOUT_MS    10000     // hub: no ACK / status for OTA_ENTER within this -> failed "no response"
+#define OTA_NODE_DL_MS        90000     // node: join + download + verify must finish within this, else abort
+#define OTA_JOIN_MS           10000     // node: Wi-Fi association budget
+#define OTA_STALL_MS          10000     // node: no bytes for this long -> abort
+#define OTA_VERIFY_MS         30000     // healthy this long after boot -> esp_ota_mark_app_valid_cancel_rollback()
+
 // ---- System ----
-#define FW_VERSION      1
+#define FW_VERSION      4               // HELLO.fw / cfg.fw (informational; OTA compares buildId, not this)
+#define FW_VERSION_STR  "0.4.0"         // bump by hand per release; shown in /state.ota.hub.version and the banner
 #define MAX_BOARDS      10
 #define LEDS_PER_BOARD  400
 #define MATRIX_WIDTH    20

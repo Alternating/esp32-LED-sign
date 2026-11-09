@@ -2,8 +2,11 @@
  * LED_Sign_Mesh — Phase 1 steps 1-3: ESP-NOW radio + numbering (step 1), the hub's web
  * transport (captive portal, JSON commands, phone UI), styling and persistence (step 3), and
  * the word sequencer with synchronized word changes (step 2: Show.applyAtHubMs, pending Shows).
- * Board: LOLIN32 (esp32:esp32:lolin32:PartitionScheme=no_ota), core 3.3.12, FastLED 3.10.9,
- * ArduinoJson 7.4.3. One binary for hub and node; role persisted in NVS.
+ * Phase 4: hub-hosted OTA (ota.h): the hub serves its own running image on :8080, phones upload a new
+ * hub image to POST /ota, the hub walks the nodes one at a time (OTA_ENTER), built-in IDF rollback
+ * confirmed after OTA_VERIFY_MS healthy.
+ * Board: LOLIN32 (esp32:esp32:lolin32:PartitionScheme=min_spiffs — two 0x1E0000 app slots), core 3.3.12,
+ * FastLED 3.10.9, ArduinoJson 7.4.3. One binary for hub and node; role persisted in NVS.
  *
  * Role selection at boot (after the boot animation):
  *   - K4 held             -> toggle role (saved)
@@ -12,14 +15,15 @@
  *
  * Serial console (single letters act immediately; 't' and '{' take the rest of the line):
  *   hub : r = reset order, i = identify all, n = next word group now, t<text> = msg alias,
- *         s = status, m = toggle mirror, w = web stats,
+ *         s = status, m = toggle mirror, w = web stats, o = OTA all out-of-date nodes, O<pos> = OTA one node,
  *         {json} = command (same handler as POST /cmd; reply printed)
  *   node: c = claim, f = forget, s = status, m = toggle mirror
  *
  * Threading: loop() on core 1 = buttons, serial, role tick, render, FastLED.show() <= 60 Hz,
  *            sign auto-save (NVS). netTask on core 0 = radio::pump() every 5 ms (RX dispatch +
  *            gated TX queue) and, on the hub, transport->poll() (HTTP + DNS).
- * Init order (hub): radio::beginHub(ssid) -> transport->begin() -> hub::begin() -> netTask.
+ * Init order (hub): ota::begin() -> radio::beginHub(ssid) -> transport->begin() -> hub::begin() -> netTask
+ *                   -> ota::startFwServer() (own task, core 0).
  */
 #include <WiFi.h>
 #include <ArduinoJson.h>
@@ -35,10 +39,12 @@
 #include "commands.h"
 #include "transport.h"
 #include "transport_web.h"
+#include "ota.h"
 
 static Role role = Role::NODE;
 static TaskHandle_t netTaskHandle = nullptr;
 static Transport* transport = nullptr;        // hub only
+static bool radioOk = false;
 
 static const char* roleName(Role r) { return r == Role::HUB ? "HUB" : "NODE"; }
 
@@ -71,6 +77,14 @@ static void runJsonLine(const char* line) {
   Serial.println();
 }
 
+static void runOtaPos(const char* digits) {      // O<pos>
+  if (role != Role::HUB) { Serial.println("? O is hub only"); return; }
+  int pos = atoi(digits);
+  const char* err;
+  if (hub::otaNode((uint8_t)constrain(pos, 0, 255), err)) Serial.printf("OTA pos %d queued\n", pos);
+  else Serial.printf("OTA pos %d refused: %s\n", pos, err);
+}
+
 static void runTextLine(const char* text) {       // t<text> = msg alias
   JsonDocument cmd, reply;
   cmd["cmd"] = "msg"; cmd["text"] = text;
@@ -82,7 +96,7 @@ static void runTextLine(const char* text) {       // t<text> = msg alias
 }
 
 // ---------------- serial console (non-blocking line buffer) ----------------
-enum class Collect : uint8_t { NONE, TEXT, JSON };
+enum class Collect : uint8_t { NONE, TEXT, JSON, POS };
 static char lineBuf[256];
 static uint16_t lineLen = 0;
 static Collect collecting = Collect::NONE;
@@ -120,10 +134,16 @@ static void runCommand(char c) {
     case 'r': if (role == Role::HUB) hub::onResetOrd();    else Serial.println("? (hub only)"); break;
     case 'i': if (role == Role::HUB) hub::onIdentifyAll(); else Serial.println("? (hub only)"); break;
     case 'n': if (role == Role::HUB) hub::nextGroup();     else Serial.println("? (hub only)"); break;
+    case 'o':
+      if (role == Role::HUB) {
+        uint8_t q, sk; const char* err;
+        if (!hub::otaNodes(q, sk, err)) Serial.printf("OTA refused: %s\n", err);
+      } else Serial.println("? (hub only)");
+      break;
     case 'c': if (role == Role::NODE) node::onClaim();     else Serial.println("? (node only)"); break;
     case 'f': if (role == Role::NODE) node::onForget();    else Serial.println("? (node only)"); break;
     case '\r': case '\n': case ' ': break;
-    default:  Serial.printf("? unknown '%c' (r i n t<text> {json} s m w | c f s m)\n", c); break;
+    default:  Serial.printf("? unknown '%c' (r i n o O<pos> t<text> {json} s m w | c f s m)\n", c); break;
   }
 }
 
@@ -134,6 +154,7 @@ static void handleSerial() {
       if (c == '\n' || c == '\r') {
         lineBuf[lineLen] = 0;
         if (collecting == Collect::JSON) runJsonLine(lineBuf);
+        else if (collecting == Collect::POS) runOtaPos(lineBuf);
         else if (role == Role::HUB) runTextLine(lineBuf);
         else Serial.println("? t is hub only");
         collecting = Collect::NONE; lineLen = 0;
@@ -144,6 +165,7 @@ static void handleSerial() {
     }
     if (c == 't') { collecting = Collect::TEXT; lineLen = 0; continue; }
     if (c == '{') { collecting = Collect::JSON; lineLen = 0; lineBuf[lineLen++] = '{'; continue; }
+    if (c == 'O') { collecting = Collect::POS; lineLen = 0; continue; }
     runCommand(c);
   }
 }
@@ -188,7 +210,7 @@ static void selectRole() {
 void setup() {
   Serial.begin(115200);
   delay(POWER_STABILIZE);
-  Serial.printf("\n=== LED_Sign_Mesh fw %d ===\n", FW_VERSION);
+  Serial.printf("\n=== LED_Sign_Mesh %s ===\n", FW_VERSION_STR);
 
   storage::begin();
   buttons::begin();
@@ -199,7 +221,12 @@ void setup() {
 
   selectRole();
 
-  bool radioOk;
+  ota::begin(role == Role::HUB);                  // buildId, slot, rollback state; hub: image length
+  {
+    char hex[9]; ota::buildIdHex(ota::buildId(), hex);
+    Serial.printf("=== LED_Sign_Mesh %s %s %s %s ===\n", ota::versionStr(), ota::gitStr(), hex, ota::slotName());
+  }
+
   if (role == Role::HUB) {
     char ssid[33];
     storage::loadSsid(ssid, sizeof(ssid), AP_SSID);
@@ -217,6 +244,7 @@ void setup() {
 
   // Hub net task also serves HTTP (WebServer + ArduinoJson on its stack): 12 kB there, node unchanged.
   xTaskCreatePinnedToCore(netTask, "net", role == Role::HUB ? 12288 : 8192, nullptr, 1, &netTaskHandle, 0);
+  if (role == Role::HUB && !ota::startFwServer()) Serial.println("[OTA] fw server NOT started (image length unknown)");
 
   char mac[18]; radio::macToStr(radio::myMac(), mac);
   Serial.printf("Running as %s  MAC %s  radio=%s channel=%d %s  mirror=%d  free heap %u\n",
@@ -229,6 +257,7 @@ void loop() {
   handleSerial();
   if (role == Role::HUB) { hub::tick();  hub::render(); }
   else                   { node::tick(); node::render(); }
+  ota::tick(radioOk && (role == Role::HUB ? hub::healthy() : node::healthy()));   // rollback confirm, deferred reboot
   display::show();      // paced to <= 60 Hz inside
   delay(1);
 }
