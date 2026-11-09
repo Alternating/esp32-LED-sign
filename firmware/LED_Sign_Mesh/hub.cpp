@@ -24,7 +24,8 @@
 //   disp*  = the group the hub shows and the 500 ms heartbeat carries (applyAtHubMs 0, dispSeq)
 //   next*  = the scheduled group: on each advance, nextSeq = dispSeq + 1, applyAt = now + 300 ms,
 //            3x burst with applyAtHubMs = applyAt; swapped into disp* in render() when due, so hub
-//            and nodes switch at the same hub-clock instant. nextAdvanceAt = applyAt + wordPeriodMs.
+//            and nodes switch at the same hub-clock instant. nextSwitchAt = lastApplyAt + wordPeriodMs is the
+//            SWITCH instant; the burst is sent WORD_LEAD_MS before it (D1 fix: period no longer includes the lead).
 //   Content/style changes (relayout or restyle) bump dispSeq past any nextSeq already on the air
 //   and burst the applied frame (applyAtHubMs 0); a pending advance is re-sent with a newer seq.
 
@@ -71,7 +72,7 @@ static uint16_t nextSeq = 1;
 static uint32_t applyAt = 0;                    // hub millis at which next* becomes disp*
 static bool     nextArmed = false;
 static uint32_t lastApplyAt = 0;                // when the displayed group last changed
-static uint32_t nextAdvanceAt = 0;
+static uint32_t nextSwitchAt = 0;                // hub-clock instant of the next group change
 static volatile bool burstApplied = true;       // burst frames include the applied slot (false = advance-only burst)
 static char     renderedChar = 0;
 
@@ -172,7 +173,7 @@ static void relayout(uint8_t nb, bool burst) {
   dispSeq = (uint16_t)((nextArmed ? nextSeq : dispSeq) + 1);   // newer than anything already on the air
   nextArmed = false;
   lastApplyAt = now;
-  nextAdvanceAt = now + live.wordPeriodMs;
+  nextSwitchAt = now + live.wordPeriodMs;
   if (burst) scheduleBurst();
   Serial.printf("[HUB] sequencer rebuilt: groups=%u mode=%s boards=%u period=%u%s\n",
                 seq.groupCount(), modeName(live.mode), nb, live.wordPeriodMs, seq.truncated() ? " (truncated)" : "");
@@ -182,7 +183,7 @@ static void relayout(uint8_t nb, bool burst) {
 static void restyle(uint16_t oldPeriod) {
   if (nextArmed) { dispSeq = (uint16_t)(nextSeq + 1); nextSeq = (uint16_t)(dispSeq + 1); }
   else           { dispSeq = (uint16_t)(dispSeq + 1); }
-  if (live.wordPeriodMs != oldPeriod && !nextArmed) nextAdvanceAt = lastApplyAt + live.wordPeriodMs;
+  if (live.wordPeriodMs != oldPeriod && !nextArmed) nextSwitchAt = lastApplyAt + live.wordPeriodMs;
   scheduleBurst();
 }
 
@@ -194,7 +195,7 @@ static void applyDue(uint32_t now) {
   dispSeq = nextSeq;
   nextArmed = false;
   lastApplyAt = applyAt;
-  nextAdvanceAt = applyAt + live.wordPeriodMs;
+  nextSwitchAt = applyAt + live.wordPeriodMs;
   char c = dispChars[0];
   if (c >= 32) Serial.printf("[HUB] apply seq=%u word=%u/%u '%c'\n", (unsigned)dispSeq, dispIdx, seq.groupCount(), c);
   else         Serial.printf("[HUB] apply seq=%u word=%u/%u code %d\n", (unsigned)dispSeq, dispIdx, seq.groupCount(), c);
@@ -203,7 +204,7 @@ static void applyDue(uint32_t now) {
 void nextGroup() {                         // serial 'n' (core 1): advance at the next tick, with the normal lead
   if (seq.groupCount() <= 1) { Serial.println("[HUB] next: only one group"); return; }
   if (nextArmed) { Serial.println("[HUB] next: advance already scheduled"); return; }
-  nextAdvanceAt = millis();
+  nextSwitchAt = millis() + WORD_LEAD_MS;
 }
 
 // ---------------- sign state handover ----------------
@@ -572,18 +573,19 @@ void tick() {
   if (st == HubState::SHOW_POSITION && now - stateEnteredAt >= SHOW_POSITION_MIN) {
     setState(HubState::RUNNING);
     lastApplyAt = now;                      // the first word period starts when the sign starts showing text
-    nextAdvanceAt = now + live.wordPeriodMs;
+    nextSwitchAt = now + live.wordPeriodMs;
   }
 
   // Word advance: schedule the next group WORD_LEAD_MS ahead so every board switches together
-  if (st == HubState::RUNNING && seq.groupCount() > 1 && !nextArmed && (int32_t)(now - nextAdvanceAt) >= 0) {
+  if (st == HubState::RUNNING && seq.groupCount() > 1 && !nextArmed && (int32_t)(now - (nextSwitchAt - WORD_LEAD_MS)) >= 0) {
     nextIdx = seq.advance();
     loadGroup(nextIdx, nextChars);
     nextSeq = (uint16_t)(dispSeq + 1);
-    applyAt = now + WORD_LEAD_MS;
+    applyAt = nextSwitchAt;                                   // anchored to the previous switch: no per-period drift
+    if ((int32_t)(applyAt - now) < 100) applyAt = now + WORD_LEAD_MS;   // we are late (restyle/'n'): keep a real lead
     nextArmed = true;
     scheduleAdvanceBurst();
-    Serial.printf("[HUB] advance group %u/%u seq=%u applyAt=+%u\n", nextIdx, seq.groupCount(), (unsigned)nextSeq, (unsigned)WORD_LEAD_MS);
+    Serial.printf("[HUB] advance group %u/%u seq=%u applyAt=+%ld\n", nextIdx, seq.groupCount(), (unsigned)nextSeq, (long)(int32_t)(applyAt - now));
   }
 
   // RESETORD burst
@@ -637,7 +639,7 @@ void printStatus() {
   uint32_t now = millis();
   if (seq.groupCount() > 1)
     Serial.printf("groups=%u idx=%u period=%u nextIn=%ld ms mode=%s%s\n", seq.groupCount(), dispIdx, live.wordPeriodMs,
-                  nextArmed ? (long)(int32_t)(applyAt - now) : (long)(int32_t)(nextAdvanceAt - now), modeName(live.mode),
+                  nextArmed ? (long)(int32_t)(applyAt - now) : (long)(int32_t)(nextSwitchAt - now), modeName(live.mode),
                   nextArmed ? " (advance armed)" : "");
   else
     Serial.printf("groups=%u idx=0 period=%u nextIn=- mode=%s (no timer)\n", seq.groupCount(), live.wordPeriodMs, modeName(live.mode));
