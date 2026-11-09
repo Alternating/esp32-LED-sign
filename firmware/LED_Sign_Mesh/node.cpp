@@ -237,6 +237,19 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
         }
       }
       break;
+    case SETMIRROR:                                   // remote flip from the hub (web 'mirror' cmd)
+      if (len >= sizeof(SetMirror)) {
+        const SetMirror* sm = (const SetMirror*)buf;
+        learnHub(srcMac);
+        if (h->flags & FLAG_NEEDS_ACK) sendAck(SETMIRROR, h->seq);
+        bool v = sm->mirror != 0;
+        if (v != display::mirror) {
+          display::mirror = v;
+          storage::saveMirror(v);
+          Serial.printf("[NODE] SETMIRROR -> mirror=%d (saved)\n", v);
+        }
+      }
+      break;
     case IDENTIFY:
       if (len >= sizeof(Identify)) {
         const Identify* id = (const Identify*)buf;

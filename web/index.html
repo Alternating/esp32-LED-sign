@@ -495,6 +495,10 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       var idb = el('button', 'btn secondary', 'Identify');
       idb.onclick = function () { sendCmd({ cmd: 'identify', pos: b.pos, ms: 3000 }, function (d) { if (d && d.ok) toast('Identifying board ' + b.pos, true); }); };
       act.appendChild(idb);
+      var mb = el('button', 'btn secondary', b.mirror ? 'Unflip' : 'Flip');
+      mb.title = 'Mirror this board horizontally (data line enters from the other side)';
+      mb.onclick = function () { sendCmd({ cmd: 'mirror', pos: b.pos, v: !b.mirror }, function (d) { if (d && d.ok) { toast('Board ' + b.pos + (d.mirror ? ' flipped' : ' unflipped'), true); pollState(); } }); };
+      act.appendChild(mb);
       if (!b.online && !b.self) {
         var fb = el('button', 'btn danger', 'Forget');
         fb.onclick = function () {

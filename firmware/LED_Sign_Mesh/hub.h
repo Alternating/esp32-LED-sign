@@ -36,6 +36,7 @@ void buildState(JsonObject root);
 void onResetOrd();                                    // clear table, RESETORD x5
 void onIdentifyAll();                                 // IDENTIFY broadcast + flash self (IDENTIFY_MS)
 bool identifyPos(uint8_t pos, uint16_t ms);           // 255 = all; 1 = self; else unicast. false = unknown pos
+bool setMirrorPos(uint8_t pos, bool v);              // 1 = self; else unicast SETMIRROR (ACK). false = unknown pos
 bool forgetPos(uint8_t pos);                          // drop row, save, unicast FORGET. false = pos 1 or unknown
 void nextGroup();                                     // serial 'n': advance to the next word group now (core 1)
 void printStatus();

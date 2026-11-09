@@ -161,6 +161,12 @@ static void selectRole() {
     storage::saveRole(role);
     Serial.printf("K4 held: role toggled to %s (saved)\n", roleName(role));
   }
+  if (buttons::heldAtBoot(K1_PIN, 3000)) {                  // plan §5.6: K1 at power-on flips this board's mirror
+    display::mirror = !display::mirror;
+    storage::saveMirror(display::mirror);
+    display::renderChar('E', CRGB::White); display::show(); delay(1500);   // 'E' makes the flip visible
+    Serial.printf("K1 held: mirror toggled to %d (saved)\n", display::mirror);
+  }
   showRoleGlyph();
   Serial.printf("Role in NVS: %s. Send H or N within %d ms to change...\n", roleName(role), ROLE_SERIAL_WINDOW);
   uint32_t t0 = millis();

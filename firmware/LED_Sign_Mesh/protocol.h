@@ -11,7 +11,8 @@ constexpr uint8_t POS_ALL = 0xFF, POS_HUB = 0;
 
 enum MsgType : uint8_t {
   HELLO=1, ASSIGN=2, ACK=3, CLAIM=4, SETPOS=5, SHOW=6, HB=7,
-  IDENTIFY=8, RESETORD=9, FORGET=10, PING=11, PONG=12
+  IDENTIFY=8, RESETORD=9, FORGET=10, PING=11, PONG=12,
+  SETMIRROR=13                      // hub -> node unicast, needsAck: set the per-board mirror flag
 };
 
 // Hdr.flags bits
@@ -28,6 +29,7 @@ struct Hdr {            // 8 bytes
 };
 
 struct Hello    { Hdr h; uint8_t nvsPos; uint8_t fw; uint16_t vbat_mV; uint8_t mirror; };  // 13 B
+struct SetMirror{ Hdr h; uint8_t mirror; };                                                 // 9 B, unicast, needsAck
 struct Assign   { Hdr h; uint8_t pos; uint8_t channel; uint32_t hubMillis; uint8_t hubPos; }; // 15 B, unicast, needsAck
 struct Ack      { Hdr h; uint8_t ackType; uint16_t ackSeq; uint8_t pos; };                  // 12 B
 struct SetPos   { Hdr h; uint8_t newPos; };                                                 // 9 B, unicast, needsAck

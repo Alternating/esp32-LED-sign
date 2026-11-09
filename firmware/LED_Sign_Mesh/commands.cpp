@@ -180,6 +180,16 @@ static bool cmdForget(JsonDocument& cmd, JsonDocument& reply) {
   return true;
 }
 
+// ---- mirror: pos 1..MAX_BOARDS, v true/false  (fixes a board whose data line enters from the other side) ----
+static bool cmdMirror(JsonDocument& cmd, JsonDocument& reply) {
+  if (!cmd["pos"].is<int>() || !cmd["v"].is<bool>()) return fail(reply, "bad_arg");
+  int pos = cmd["pos"].as<int>();
+  if (pos < 1 || pos > MAX_BOARDS) return fail(reply, "bad_arg");
+  if (!hub::setMirrorPos((uint8_t)pos, cmd["v"].as<bool>())) return fail(reply, "bad_arg");
+  reply["pos"] = pos; reply["mirror"] = cmd["v"].as<bool>();
+  return true;
+}
+
 // ---- name: v 1..24 chars of [A-Za-z0-9_-]; persisted, applies next boot ----
 static bool cmdName(JsonDocument& cmd, JsonDocument& reply) {
   const char* v = str(cmd, "v");
@@ -212,6 +222,7 @@ bool handle(JsonDocument& cmd, JsonDocument& reply, bool isHub) {
   if (!strcmp(c, "identify"))    return cmdIdentify(cmd, reply);
   if (!strcmp(c, "reset_order")) { hub::onResetOrd(); return true; }
   if (!strcmp(c, "forget"))      return cmdForget(cmd, reply);
+  if (!strcmp(c, "mirror"))      return cmdMirror(cmd, reply);
   if (!strcmp(c, "name"))        return cmdName(cmd, reply);
   if (!strcmp(c, "save"))        { hub::saveNow(); return true; }
   return fail(reply, "bad_cmd");

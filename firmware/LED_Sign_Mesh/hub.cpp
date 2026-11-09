@@ -49,6 +49,7 @@ struct BoardInfo {              // indexed by pos 1..MAX_BOARDS; all-zero = neve
   uint8_t  shownChar;
   uint8_t  nodeState;
   uint16_t lastShowSeq;
+  uint8_t  mirror;              // from HELLO, updated by setMirrorPos()
 };
 static BoardInfo info[MAX_BOARDS + 1];          // guarded by tMux like table[]
 static portMUX_TYPE tMux = portMUX_INITIALIZER_UNLOCKED;
@@ -318,6 +319,7 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
       if (len >= sizeof(Hello)) {
         const Hello* m = (const Hello*)buf;
         onHello(srcMac, m->nvsPos, false, rssi, m->vbat_mV);
+        { portENTER_CRITICAL(&tMux); int i = findMac(srcMac); if (i >= 0 && table[i].pos) info[table[i].pos].mirror = m->mirror; portEXIT_CRITICAL(&tMux); }
       }
       break;
     case CLAIM:
@@ -401,6 +403,28 @@ bool identifyPos(uint8_t pos, uint16_t ms) {
   radio::send(mac, &id, sizeof(id), true);    // D1: unicast with ACK/retry
   char ms18[18]; radio::macToStr(mac, ms18);
   Serial.printf("[HUB] IDENTIFY pos %d (%s) %u ms\n", pos, ms18, ms);
+  return true;
+}
+
+// Remote mirror flip (web/serial `mirror`): pos 1 = hub itself, else unicast SETMIRROR with ACK.
+bool setMirrorPos(uint8_t pos, bool v) {
+  if (pos == MY_POS) {
+    display::mirror = v; storage::saveMirror(v);
+    Serial.printf("[HUB] mirror self -> %d (saved)\n", v);
+    return true;
+  }
+  uint8_t mac[6]; bool found = false;
+  portENTER_CRITICAL(&tMux);
+  int idx = findPos(pos);
+  if (idx >= 0) { memcpy(mac, table[idx].mac, 6); found = true; info[pos].mirror = v; }
+  portEXIT_CRITICAL(&tMux);
+  if (!found) return false;
+  SetMirror sm;
+  sm.h = makeHdr(SETMIRROR, MY_POS, pos);
+  sm.mirror = v ? 1 : 0;
+  radio::send(mac, &sm, sizeof(sm), true);
+  char ms18[18]; radio::macToStr(mac, ms18);
+  Serial.printf("[HUB] SETMIRROR pos %d (%s) -> %d\n", pos, ms18, v);
   return true;
 }
 
@@ -493,7 +517,7 @@ void buildState(JsonObject root) {
     snprintf(id, sizeof(id), "%02X%02X", mm[4], mm[5]);
     JsonObject b = boards.add<JsonObject>();
     b["pos"] = MY_POS; b["id"] = id; b["mac"] = macs; b["self"] = true;
-    b["online"] = true; b["age"] = 0; b["mv"] = 0; b["rssi"] = 0;
+    b["online"] = true; b["age"] = 0; b["mv"] = 0; b["rssi"] = 0; b["mirror"] = display::mirror;
     putChar(b, dispChars[0]);
   }
   for (uint8_t pos = 2; pos <= MAX_BOARDS; pos++) {           // sorted by pos
@@ -507,7 +531,7 @@ void buildState(JsonObject root) {
     b["pos"] = pos; b["id"] = id; b["mac"] = macs; b["self"] = false;
     b["online"] = bi.lastHb != 0 && (now - bi.lastHb) < OFFLINE_AFTER_MS;
     b["age"] = bi.lastHb ? (int32_t)((now - bi.lastHb) / 1000) : -1;
-    b["mv"] = bi.mv; b["rssi"] = bi.rssi;
+    b["mv"] = bi.mv; b["rssi"] = bi.rssi; b["mirror"] = bi.mirror != 0;
     putChar(b, (char)bi.shownChar);
   }
 }
