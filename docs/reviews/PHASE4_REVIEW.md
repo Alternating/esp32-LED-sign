@@ -208,3 +208,51 @@ Hub `o` → `hub::otaNodes()`, `O<pos>` → collect digits like `t`, `s` prints 
 - **B6** First-rollout path: hub updated via `/ota` while nodes run the previous Phase-4 build; `ota_nodes` queues them by buildId mismatch; `/state.ota` reaches `done` for each; `ota_nodes` again → empty (O5).
 - **B7** `Update.begin(size)` on the node erases sectors lazily; measure whether the first `Update.write` stalls long enough to trip the 10 s no-progress watchdog (it should not — erase is per 4 kB sector as written).
 - **B8** Row budget for the progress bar: confirm the digit glyphs in `character_patterns.h` leave rows 18–19 free; otherwise shift the bar to a single row or dim the glyph.
+
+## Refactor disposition
+
+Refactored against the verified baseline (`b7ea985` + identify fix `f62bd28`), not by patching the draft. Nothing from `drafts/ota_qwen_v1/` was copied verbatim; the struct layouts, `BoardInfo.buildId` plumbing, command shapes, `max_conn` change and the Firmware-section idea were re-implemented per "Keep as-is". Owner's settled decisions (refactor brief) override the review where they differ — noted below.
+
+**Build** (Qwen box, core 3.3.12): `arduino-cli compile --warnings all --fqbn esp32:esp32:lolin32:PartitionScheme=min_spiffs LED_Sign_Mesh` → 0 errors, **0 warnings in our sources** (16 warnings, all in FastLED 3.10.9 and the core's `periph_ctrl.h`, same set as before). Via `tools/make_images.sh` at `8a36995`: app **1 136 995 B** (57 % of the 1 966 080 B slot), globals 63 784 B. `LED_Sign_ota.bin` 1 137 136 B, HUB/NODE install 1 202 672 B each; `build_id.h` = `8a36995` = `git rev-parse --short HEAD`; `0.4.0` and `8a36995` found in the image. `tools/seq_test`: 23/23. Playwright O8 (stub server): 18/18, no console errors; screenshots `phase4_ui_firmware.png`, `phase4_ui_boards.png`.
+
+| ID | Disposition |
+|---|---|
+| O4-01 | Fixed. `FW_VERSION_STR "0.4.0"` (config.h); `build_id.h` included from ota.cpp only behind `__has_include`, fallback `BUILD_GIT "dev"`; gitignored. `FW_VERSION` bumped 1→4 (informational HELLO.fw / cfg.fw only). |
+| O4-02/03/09/12 | Fixed by structure: ota.h is JSON-free; Update/esp_ota includes live in ota.cpp; transport_web.cpp only registers routes and calls `ota::`; NVS rollback code not carried over. |
+| O4-04..08 | Fixed: `AP_PASS`; `IPAddress(ip).toString()` with `http.begin(client, host, port, "/fw.bin")`; `setReuse(false)`; `Update.progress()` not needed (own byte count); render via `display::leds[ledIndex(...)]`. |
+| O4-10/11 | Fixed: `NetworkServer::accept()`; `setConnectTimeout(5000)` / `setTimeout(10000)`, overall 90 s and 10 s stall watchdog in our own loop. |
+| O4-13 | Fixed: .ino calls `ota::begin`, `ota::startFwServer` (hub, after the net task), `ota::tick(healthy)` every loop; serial `o`, `O<pos>`, extended `s`; banner `=== LED_Sign_Mesh 0.4.0 <git> <buildId> <slot> ===`. |
+| O4-14 | Fixed: `MAX_FRAME 128`; `static_assert` for every frame ≤ MAX_FRAME, exact sizes (Hello 17, Hb 19, OtaEnter 94, OtaStatus 38), MAX_FRAME ≤ 250. |
+| O4-15/16/43 | Fixed per settled decision (a): `PROTO_VER` stays 1, buildId appended; hub accepts `len >= HELLO_V1_LEN/HB_V1_LEN` and reads buildId only when the frame is long enough, else `00000000`. |
+| O4-17 | Fixed: node ACKs with `sendAck(OTA_ENTER, seq)` (myPos, hubMac) on every copy; retries while already in OTA are re-ACKed and ignored; Wi-Fi starts ≥150 ms later from core 1's handover. |
+| O4-18 | Fixed: OTA_STATUS unicast to hubMac with `srcPos = myPos`; hub matches by **srcMac** against the in-flight MAC. |
+| O4-19 | Fixed: `ota::imageLen()` from `esp_image_get_metadata()` on the running partition (once at hub boot, logged with ms); `OtaEnter.size`, `Content-Length` and the served byte count are that value; node checks `getSize() == size`. |
+| O4-20 | Fixed: `OtaWireState` enum in protocol.h; hub UI states are `OtaRow` in hub.cpp. |
+| O4-21 | Fixed: `bssid[6]` appended (94 B); node calls `WiFi.begin(ssid, pass, 6, bssid)` and aborts if the channel is not 6 after association. |
+| O4-22/23/28 | Fixed: queue in hub.cpp under `tMux` (FIFO of positions + per-position `OtaRec`); built from live `table[]`/`info[]`, online = HB within `OFFLINE_AFTER_MS`, unknown buildId counts as different; `otaTick()` in `hub::tick()` starts the next node, fails it on "no response" (no ACK/status in 10 s) or "timeout" (120 s); completion = HELLO/HB from the in-flight MAC carrying the hub's buildId. Commands only edit the queue under the lock. |
+| O4-24 | Fixed per settled decision: `ota_cancel` drops the queued rows; the node in flight finishes or hits its own timeout (documented in UI hint, README and hub.h). No `stopFwClient`. |
+| O4-25 | Fixed: dedicated task (core 0, prio 1, 8 kB stack), static 4 kB buffer, bounded request read (2 KB / 2 s), `GET /fw.bin` → `HTTP/1.0 200` + `Content-Length` + exact image bytes; anything else 404; no image → 503; one client at a time (backlog); start/end/bytes/ms logged. |
+| O4-26 | **Deferred to bench B3.** Settled decision is `esp_partition_read` + static 4 kB buffer; mmap not implemented. Watch the hub board for glitches while serving. |
+| O4-27 | Fixed: `/state.ota = {hub:{buildId,version,git,slot,valid,verifyIn,imageLen}, running, upload, current:{pos,pct,state}|null, boards:[{pos,buildId,status,pct,err}]}` (settled shape; `verifyIn/imageLen/upload` extra); every `state.boards[]` row has `fw` (8 hex). Also `GET /ota` returns the same object. |
+| O4-29 | Fixed: `ota_nodes` replies `queued`/`skipped`; `ota_node` errors `hub_use_ota_upload`, `up_to_date`, `offline`, `queued`, `busy`, `no_image`, `bad_arg`. |
+| O4-30..33 | Fixed: core-0 handler validates (len, dstPos == myPos, myPos ≠ 0), ACKs, copies under `otaMux`; `node::tick()` enters `NodeState::OTA` and calls `ota::nodeStart()` (task core 0, 8 kB). Read loop uses `available()`/`read()` as `int`, never casts a negative. Every failure path: `Update.abort()`, `WiFi.disconnect(false)`, `esp_wifi_set_channel(6)` (in the task), FAILED status with reason, `DISCOVER`. `WiFi.setSleep(false)`, `setAutoReconnect(false)`, `Update.begin(contentLength)`. |
+| O4-34 | Fixed: blue position digit + 2-row bar, no `show()` from render. Progress status every **10 %** (settled; review said 5 %), deciles compared. B8 answered: digit glyphs use all 20 rows, so the bar replaces the glyph's bottom two rows (green done / dim grey remaining). |
+| O4-35 | Fixed: VERIFIED status sent from tick, full bar for 500 ms, then `ESP.restart()`; hub uses the rejoin HELLO as completion. Backstop: tick restarts on the old image if the task overruns 100 s. |
+| O4-36/37 | Fixed: in `OTA` only `OTA_ENTER` and `SHOW` are processed; entering OTA cancels a running identify; status LED blinks at 50 ms. |
+| O4-38/41 | Fixed: `server.on("/ota", HTTP_POST, otaDone, otaChunk)`; first error latched; `radio::pump()` between chunks keeps the mesh alive during the upload; reply `{ok,size,err}`; reboot armed +1 s, executed by `ota::tick()` on core 1. Refused (`"node update in progress"`) while a node OTA is queued/in flight; `ota_nodes` refused (`busy`) while an upload runs. |
+| O4-39 | Fixed per settled decision: `extern "C" bool verifyRollbackLater() { return true; }`; `ota::tick(healthy)` calls `esp_ota_mark_app_valid_cancel_rollback()` once after `OTA_VERIFY_MS` when healthy and logs `[OTA] image marked valid (slot X)`. Hub healthy = RUNNING + AP IP up + channel 6 + radio init OK; node healthy = radio OK + channel 6 + (reached RUNNING at least once, or currently DISCOVER). Boot log prints slot, address, `esp_ota_get_state_partition`, and "previous image … rolled back" when the other slot is ABORTED/INVALID. `-DOTA_SELFTEST_FAIL` reboots at 10 s while pending (for B5). |
+| O4-40 | **Deferred** (O10): `/ota_status` HTTP fallback not implemented; status goes over ESP-NOW only. Add it only if B1/O10 measures > 10 % OTA_STATUS loss while associated. |
+| O4-42 | Fixed: Firmware card added to the real `web/index.html` (ES5, `el()`/`textContent`, 36 750 B ≤ 44 kB); `web_page.h` regenerated (10 781 B gz); `build_web.py` guard raised to 44 kB. |
+| O4-44 | Fixed: `AP_MAX_CONN 4`. |
+| O4-45 | Fixed: `make_images.sh` writes `build_id.h` (adds `-dirty` if `firmware/` or `web/` has uncommitted changes), compiles with `--warnings all --export-binaries` and min_spiffs, fails on warnings in our sources, produces HUB/NODE install + `LED_Sign_ota.bin`, README.txt, SHA256SUMS, `build.log`. |
+| O4-46 | Fixed: `flasher.py --update` exits with the OTA instructions; `flash_board.sh update` likewise; both print the OTA note after an install. README.md, firmware/bench/README.md, docs/HOWTO_build_pipeline.md: min_spiffs FQBN, "wired install once → OTA forever". |
+
+**Interpretations for the verifier**
+- O7 as reworded by the review: an unconfirmed image rolls back on **one** reset, not three. A wired install (blank otadata) boots app0 with no otadata entry (`state=n/a`), so it is never "pending".
+- Node health "reached RUNNING or DISCOVER": a node rebooted into a new image confirms at 30 s if it is RUNNING (normal) or still DISCOVERing; if it is LOST_HUB at 30 s it confirms later, once it reaches RUNNING. A reset before confirmation rolls it back.
+- `ota_node` on an up-to-date board is refused (`up_to_date`) rather than re-flashing the same image.
+- While a node downloads it sends no HB, so the Boards tab shows it offline; the Firmware table shows its OTA status.
+- The hub's `/ota` upload blocks the port-80 server (single-threaded) for the transfer; the page pauses `/state` polling while uploading and resumes after the reply. ESP-NOW keeps running (radio pumped per chunk).
+- The status table merges `err` into the status cell (`failed: timeout`) to fit a phone; columns are Pos / fw / Status / % / Update.
+
+**Not verified (needs hardware):** everything in O2–O7, O9, O10 and bench B1–B8 except B8. In particular: `esp_image_get_metadata().image_len` must equal the `.bin` file size (1 137 136 B for `8a36995`); the hub logs it at boot.
