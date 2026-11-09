@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "web" / "index.html"
 OUT = ROOT / "firmware" / "LED_Sign_Mesh" / "web_page.h"
-MAX_SRC = 40 * 1024
+MAX_SRC = 44 * 1024   # Phase 4 brief: index.html <= 44 kB
 
 
 def main() -> int:

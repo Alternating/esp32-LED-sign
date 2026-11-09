@@ -70,6 +70,19 @@ input[type="color"] { height: 44px; padding: 4px; margin-top: 8px; }
 pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px; font-size: 11px; color: #aaa; white-space: pre-wrap; word-break: break-all; max-height: 220px; overflow: auto; min-height: 40px; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #dc3545; color: #fff; padding: 10px 20px; border-radius: 6px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 1000; font-size: 14px; max-width: 90%; }
 .toast.ok { background: #28a745; }
+.board-card .badge.fw, .badge.fw { background: #444; font-family: Menlo, Consolas, monospace; font-size: 10px; color: #ddd; padding: 2px 6px; border-radius: 4px; }
+.board-card .badge.fw.bad, .badge.fw.bad { background: #a33; color: #fff; }
+.fwcard { margin-top: 16px; padding: 12px; background: #3d3d3d; border-radius: 6px; }
+.fwcard h3 { font-size: 15px; color: #007bff; margin-bottom: 6px; }
+.fwcard input[type="file"] { font-size: 13px; padding: 8px; }
+.prog { height: 8px; background: #222; border-radius: 4px; margin-top: 10px; overflow: hidden; }
+.prog > div { height: 100%; width: 0; background: #007bff; transition: width 0.2s; }
+.ota-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+.ota-table th, .ota-table td { padding: 6px 4px; border-bottom: 1px solid #555; text-align: left; vertical-align: middle; }
+.ota-table th { color: #aaa; font-weight: normal; }
+.ota-table td.mono { font-family: Menlo, Consolas, monospace; }
+.ota-table .btn { margin: 0; padding: 6px 8px; font-size: 12px; width: auto; }
+.st-failed { color: #ff6b6b; } .st-done, .st-up-to-date { color: #28a745; }
 .toast.show { opacity: 1; }
 </style>
 </head>
@@ -157,6 +170,21 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
     <label for="apName">AP name (1-24 chars: letters, digits, - _; applies after reboot)</label>
     <input type="text" id="apName" maxlength="24" placeholder="LEDSIGN-HUB" autocomplete="off" autocapitalize="off">
     <button class="btn" id="saveName">Save AP name</button>
+    <div class="fwcard" id="fwCard">
+      <h3>Firmware</h3>
+      <div class="hint" id="fwHub" style="margin-top:0">Hub: waiting for /state&hellip;</div>
+      <label for="fwFile">Upload new firmware to the hub (LED_Sign_ota.bin)</label>
+      <input type="file" id="fwFile" accept=".bin,application/octet-stream">
+      <button class="btn" id="fwUpload" disabled>Upload to hub</button>
+      <div class="prog"><div id="fwProg"></div></div>
+      <div class="hint" id="fwMsg"></div>
+      <div class="row">
+        <button class="btn" id="otaAll">Update all boards</button>
+        <button class="btn danger" id="otaCancel" style="display:none">Cancel queue</button>
+      </div>
+      <div class="hint">Boards update one at a time from the hub (about 30 s each). Cancel stops the queue; a board already updating finishes.</div>
+      <table class="ota-table"><thead><tr><th>Pos</th><th>fw</th><th>Status</th><th>%</th><th></th></tr></thead><tbody id="otaList"></tbody></table>
+    </div>
     <div class="status" id="status">Waiting for /state&hellip;</div>
     <label for="rawCmd">Raw JSON command</label>
     <textarea id="rawCmd" rows="2" autocapitalize="off" autocomplete="off" spellcheck="false">{"cmd":"get"}</textarea>
@@ -174,6 +202,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
   var focusedText = false, inflight = false, polling = false;
   var briT = null, speedT = null, wspeedT = null, briTouched = 0, speedTouched = 0, wspeedTouched = 0;
   var logLines = [];
+  var uploading = false, rebootSince = 0, preBuild = null;
   var SYM = { heart: '{heart}', star: '{star}', check: '{check}', cross: '{cross}', right: '{right}', left: '{left}',
               up: '{up}', down: '{down}', diamond: '{diamond}', circle: '{circle}', happy: '{happy}', sad: '{sad}' };
   // Chip glyphs for tokens (fixed map, never random): heart star check cross right left up down diamond circle happy sad
@@ -489,7 +518,10 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       top.appendChild(el('span', 'st', b.online ? 'online' : 'offline'));
       card.appendChild(top);
       card.appendChild(el('div', 'info', (b.id || '') + '  ' + (b.mac || '')));
-      card.appendChild(el('div', 'info', 'rssi ' + b.rssi + ' dBm  age ' + (b.age < 0 ? '-' : b.age + ' s') + (b.mv ? '  ' + b.mv + ' mV' : '')));
+      card.appendChild(el('div', 'info', 'rssi ' + b.rssi + ' dBm  age ' + (b.age < 0 ? '-' : b.age + ' s')));
+      var hb = hubBuild(), fwd = el('div', 'info');
+      if (b.fw) fwd.appendChild(el('span', 'badge fw' + (hb && b.fw !== hb ? ' bad' : ''), 'fw ' + b.fw));
+      card.appendChild(fwd);
       card.appendChild(el('div', 'chr', 'char: ' + (b['char'] ? b['char'] : '(blank)')));
       var act = el('div', 'actions');
       var idb = el('button', 'btn secondary', 'Identify');
@@ -499,6 +531,11 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       mb.title = 'Mirror this board horizontally (data line enters from the other side)';
       mb.onclick = function () { sendCmd({ cmd: 'mirror', pos: b.pos, v: !b.mirror }, function (d) { if (d && d.ok) { toast('Board ' + b.pos + (d.mirror ? ' flipped' : ' unflipped'), true); pollState(); } }); };
       act.appendChild(mb);
+      if (!b.self && b.online && hb && b.fw && b.fw !== hb) {
+        var ub = el('button', 'btn', 'Update');
+        ub.onclick = function () { otaNode(b.pos); };
+        act.appendChild(ub);
+      }
       if (!b.online && !b.self) {
         var fb = el('button', 'btn danger', 'Forget');
         fb.onclick = function () {
@@ -509,6 +546,92 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       }
       card.appendChild(act);
       grid.appendChild(card);
+    });
+  }
+
+  // ---------- firmware (Phase 4 OTA) ----------
+  function hubBuild() { return S.ota && S.ota.hub ? S.ota.hub.buildId : null; }
+  function setProg(p) { $('fwProg').style.width = p + '%'; }
+  function fwMsg(s) { $('fwMsg').textContent = s; }
+  function fileChosen() { var f = $('fwFile'); return !!(f.files && f.files.length); }
+  $('fwFile').onchange = function () { $('fwUpload').disabled = uploading || !fileChosen(); setProg(0); fwMsg(''); };
+  $('fwUpload').onclick = function () {
+    var f = $('fwFile').files && $('fwFile').files[0];
+    if (!f || uploading) return;
+    if (!confirm('Upload ' + f.name + ' (' + Math.round(f.size / 1024) + ' kB) to the hub? The hub reboots when it is done.')) return;
+    var fd = new FormData();
+    fd.append('file', f, f.name);
+    var x = new XMLHttpRequest();
+    uploading = true;
+    $('fwUpload').disabled = true;
+    setProg(0); fwMsg('Uploading ' + f.name + '\u2026');
+    x.upload.onprogress = function (e) { if (e.lengthComputable) { var p = Math.round(e.loaded * 100 / e.total); setProg(p); fwMsg('Uploading\u2026 ' + p + ' %'); } };
+    x.onload = function () {
+      var d = null;
+      try { d = JSON.parse(x.responseText); } catch (e) { d = null; }
+      uploading = false;
+      addLog('> POST /ota ' + f.name + ' (' + f.size + ' B)\n< ' + (x.responseText || ('HTTP ' + x.status)));
+      if (d && d.ok) {
+        setProg(100);
+        preBuild = hubBuild(); rebootSince = Date.now();
+        fwMsg('Hub rebooting\u2026 (' + d.size + ' B written)');
+        toast('Hub rebooting\u2026', true);
+        var c = $('conn'); c.className = 'off'; c.textContent = 'reconnecting\u2026';
+      } else {
+        fwMsg('Upload failed: ' + ((d && d.err) || ('HTTP ' + x.status)));
+        toast('Upload failed', false);
+        $('fwUpload').disabled = !fileChosen();
+      }
+    };
+    x.onerror = function () {
+      uploading = false;
+      fwMsg('Upload failed: network error');
+      toast('Upload failed', false);
+      $('fwUpload').disabled = !fileChosen();
+    };
+    x.open('POST', '/ota');
+    x.send(fd);
+  };
+  function otaNode(pos) {
+    sendCmd({ cmd: 'ota_node', pos: pos }, function (d) { if (d && d.ok) { toast('Board ' + pos + ' queued for update', true); pollState(); } });
+  }
+  $('otaAll').onclick = function () {
+    sendCmd({ cmd: 'ota_nodes' }, function (d) {
+      if (d && d.ok) { toast(d.queued ? 'Queued ' + d.queued + ' board' + (d.queued === 1 ? '' : 's') : 'All online boards are up to date', true); pollState(); }
+    });
+  };
+  $('otaCancel').onclick = function () {
+    sendCmd({ cmd: 'ota_cancel' }, function (d) { if (d && d.ok) { toast('Queue cancelled', true); pollState(); } });
+  };
+  var BUSY = { queued: 1, starting: 1, joining: 1, updating: 1, rebooting: 1 };
+  function renderOta() {
+    var o = S.ota, tb = $('otaList');
+    tb.innerHTML = '';
+    if (!o || !o.hub) { $('fwHub').textContent = 'Hub: no firmware info'; return; }
+    var h = o.hub;
+    $('fwHub').textContent = 'Hub: fw ' + h.version + ' \u00b7 ' + h.git + ' \u00b7 build ' + h.buildId + ' \u00b7 slot ' + h.slot +
+      (h.valid ? ' \u00b7 confirmed' : ' \u00b7 verifying\u2026' + (h.verifyIn ? ' (' + h.verifyIn + ' s)' : ''));
+    $('otaCancel').style.display = o.running ? '' : 'none';
+    $('otaAll').disabled = !!o.running || !!o.upload || uploading;
+    var rows = o.boards || [];
+    if (!rows.length) { var tr0 = el('tr'); var td0 = el('td', 'hint', 'No nodes registered.'); td0.colSpan = 5; tr0.appendChild(td0); tb.appendChild(tr0); return; }
+    each(rows, function (b) {
+      var tr = el('tr');
+      tr.appendChild(el('td', '', String(b.pos)));
+      var fw = el('td', 'mono');
+      fw.appendChild(el('span', 'badge fw' + (b.buildId !== h.buildId ? ' bad' : ''), b.buildId));
+      tr.appendChild(fw);
+      var txt = b.status === 'failed' && b.err ? 'failed: ' + b.err : b.status;
+      tr.appendChild(el('td', 'st-' + b.status, txt));
+      tr.appendChild(el('td', '', BUSY[b.status] && b.status !== 'queued' ? b.pct + ' %' : ''));
+      var act = el('td');
+      if (b.buildId !== h.buildId && !BUSY[b.status] && b.status !== 'offline') {
+        var ub = el('button', 'btn secondary', 'Update');
+        ub.onclick = function () { otaNode(b.pos); };
+        act.appendChild(ub);
+      }
+      tr.appendChild(act);
+      tb.appendChild(tr);
     });
   }
 
@@ -564,6 +687,12 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
     $('boardsHint').textContent = (cfg.boardsAuto ? 'Auto: highest assigned position = ' : 'Pinned to ') + st.numBoards +
       ' · next free position ' + st.nextPos;
     renderBoards();
+    renderOta();
+    if (rebootSince) {
+      var nb = hubBuild();
+      if (nb && nb !== preBuild) { toast('Hub updated: build ' + nb, true); fwMsg('Hub is running build ' + nb + '. Use "Update all boards" next.'); rebootSince = 0; }
+      else if (Date.now() - rebootSince > 90000) { fwMsg('Hub is back on build ' + nb + ' (same as before: the update did not take, or it rolled back).'); rebootSince = 0; }
+    }
 
     // Settings
     var ap = $('apName');
@@ -571,7 +700,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       if (lastName === null ? ap.value === '' : ap.value === lastName) ap.value = cfg.name;
       lastName = cfg.name;
     }
-    $('status').textContent = 'SSID ' + cfg.name + ' · fw ' + cfg.fw + ' · hub ' + (st.hubState || '') +
+    $('status').textContent = 'SSID ' + cfg.name + ' · fw ' + (d.ota && d.ota.hub ? d.ota.hub.version : cfg.fw) + ' · hub ' + (st.hubState || '') +
       '\nheap ' + st.heap + ' B · uptime ' + fmtUptime(st.uptime) + ' · clients ' + st.clients;
   }
 
@@ -592,7 +721,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
 
   updateCharCount();
   pollState();
-  setInterval(function () { if (!focusedText) pollState(); }, 2000);
+  setInterval(function () { if (!focusedText && !uploading) pollState(); }, 2000);
 })();
 </script>
 </body>

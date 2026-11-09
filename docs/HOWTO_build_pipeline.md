@@ -15,8 +15,8 @@ Rules: one agent active at a time; drift between brief/plan/reality is logged as
 
 Box commands (Qwen box, `~/esp32-led-sign`):
 ```bash
-cd firmware && ~/.local/bin/arduino-cli compile --fqbn esp32:esp32:lolin32:PartitionScheme=no_ota LED_Sign_Mesh
-~/.local/bin/arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:lolin32:PartitionScheme=no_ota LED_Sign_Mesh
+cd firmware && ~/.local/bin/arduino-cli compile --fqbn esp32:esp32:lolin32:PartitionScheme=min_spiffs LED_Sign_Mesh
+~/.local/bin/arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:lolin32:PartitionScheme=min_spiffs LED_Sign_Mesh
 python3 tools/serial_capture.py /dev/ttyUSB0 12 H     # reset, set role HUB, capture 12 s
 python3 tools/serial_capture.py /dev/ttyUSB1 12 N
 ```

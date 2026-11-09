@@ -4,11 +4,13 @@ Build host: Qwen box (`qwen@192.168.1.8`), LOLIN32 on `/dev/ttyUSB0`. Toolchain:
 
 ```bash
 cd ~/esp32-led-sign/firmware/bench
-~/.local/bin/arduino-cli compile --fqbn esp32:esp32:lolin32:PartitionScheme=no_ota <sketch>
-~/.local/bin/arduino-cli upload  --fqbn esp32:esp32:lolin32:PartitionScheme=no_ota -p /dev/ttyUSB0 <sketch>
+~/.local/bin/arduino-cli compile --fqbn esp32:esp32:lolin32:PartitionScheme=min_spiffs <sketch>
+~/.local/bin/arduino-cli upload  --fqbn esp32:esp32:lolin32:PartitionScheme=min_spiffs -p /dev/ttyUSB0 <sketch>
 python3 ~/esp32-led-sign/tools/serial_capture.py /dev/ttyUSB0 20        # reset + capture 20 s
 ```
-LOLIN32 partition options are `default | no_ota | min_spiffs` (no `huge_app`); `no_ota` gives a 2.6 MB app slot.
+LOLIN32 partition options are `default | no_ota | min_spiffs` (no `huge_app`). Since Phase 4 everything uses **`min_spiffs`** (two 0x1E0000 = 1.9 MB OTA app slots, 128 kB SPIFFS); the results below were measured under `no_ota`.
+
+**Main firmware (`firmware/LED_Sign_Mesh`): wired install once → OTA forever.** Build and package with `tools/make_images.sh` (writes `build_id.h`, compiles with min_spiffs, produces `release/<commit>/LED_Sign_{HUB,NODE}_install.bin` and `LED_Sign_ota.bin`). Wired: `tools/flash_board.sh /dev/ttyUSBx hub|node`. After that, upload `LED_Sign_ota.bin` to the hub (`curl -F "file=@release/<commit>/LED_Sign_ota.bin" http://192.168.4.1/ota` from a host on `LEDSIGN-HUB`) and push it to the nodes with `{"cmd":"ota_nodes"}`. A bench sketch uploaded to a board replaces the main firmware; reinstall it with the install image afterwards.
 
 ## font_test
 Hardware check for `character_patterns.h`: prints chip/MAC/version info, measures `FastLED.show()`, cycles the 21 new glyphs then A–Z 0–9. Keys over serial: `n` next, `p` pause, `m` mirror.

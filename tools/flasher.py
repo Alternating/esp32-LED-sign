@@ -3,7 +3,6 @@
 LED Sign flasher — guided, one board at a time.
 
   python tools/flasher.py                 # interactive (hub first if not yet assigned, then add-on boards)
-  python tools/flasher.py --update        # app-only update of existing boards (keeps role/position/message)
   python tools/flasher.py --images release/120f6ca   # use a specific release folder (default: newest under release/)
 
 Flow:
@@ -12,6 +11,9 @@ Flow:
   after each board: "Add another board?"  y -> unplug it, plug in the next, press Enter -> flash
 Each flash is verified ("Hash of data verified"), then the boot banner is read to confirm role + MAC,
 and a line is appended to release/<ver>/boards_flashed.csv.
+
+Wired flashing is the one-time full install. Every update after that is over the air from the phone:
+Settings -> Firmware -> upload release/<ver>/LED_Sign_ota.bin to the hub -> "Update all boards".
 
 Requires: pip install esptool pyserial      (115200 baud throughout — the sign's USB adapters reject faster)
 """
@@ -27,8 +29,9 @@ except ImportError:
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, ".."))
 IMAGES = {"hub": ("LED_Sign_HUB_install.bin", "0x0"),
-          "node": ("LED_Sign_NODE_install.bin", "0x0"),
-          "update": ("LED_Sign_update_app.bin", "0x10000")}
+          "node": ("LED_Sign_NODE_install.bin", "0x0")}
+OTA_NOTE = ("Updates after install are done over the air from the phone (Settings -> Firmware): "
+            "upload LED_Sign_ota.bin to the hub, then press 'Update all boards'.")
 
 def say(msg): print(msg, flush=True)
 
@@ -120,7 +123,7 @@ def read_banner(port, secs=9.0):
 def main():
     ap = argparse.ArgumentParser(description="Guided flasher for the LED sign boards")
     ap.add_argument("--images", help="release folder with the three .bin files (default: newest under release/)")
-    ap.add_argument("--update", action="store_true", help="app-only update of existing boards (keeps settings)")
+    ap.add_argument("--update", action="store_true", help=argparse.SUPPRESS)   # retired in Phase 4 (OTA)
     a = ap.parse_args()
 
     rel = os.path.abspath(a.images) if a.images else newest_release()
@@ -128,18 +131,18 @@ def main():
         if not os.path.exists(os.path.join(rel, fn)): sys.exit(f"missing {fn} in {rel}")
     roster = os.path.join(rel, "boards_flashed.csv")
     say(f"LED Sign flasher — images: {rel}")
-    say("Rule: keep the board plugged in until it says 'verified OK'. Interrupted flashes erase the app.\n")
-
     if a.update:
-        mode_first = mode_rest = "update"
-        say("UPDATE mode: every board gets the app-only image at 0x10000; roles/positions/message are kept.")
-    else:
-        hub_done = ask("Is the hub already assigned (a board already flashed as HUB)?", default="n") == "y"
-        mode_first = "node" if hub_done else "hub"
-        mode_rest = "node"
-        if not hub_done:
-            say("  -> the FIRST board you plug in now becomes the HUB. Label it 'HUB / 1'.")
-        say("  -> every board after that is an add-on NODE; they number themselves by power-on order later.")
+        sys.exit("--update is retired: the boards have two app slots now, so wired app-only writes would hit the wrong one.\n"
+                 + OTA_NOTE + f"\n  image: {os.path.join(rel, 'LED_Sign_ota.bin')}")
+    say("Rule: keep the board plugged in until it says 'verified OK'. Interrupted flashes erase the app.")
+    say(OTA_NOTE + "\n")
+
+    hub_done = ask("Is the hub already assigned (a board already flashed as HUB)?", default="n") == "y"
+    mode_first = "node" if hub_done else "hub"
+    mode_rest = "node"
+    if not hub_done:
+        say("  -> the FIRST board you plug in now becomes the HUB. Label it 'HUB / 1'.")
+    say("  -> every board after that is an add-on NODE; they number themselves by power-on order later.")
 
     mode = mode_first
     count = 0
@@ -180,8 +183,9 @@ def main():
         known = list_serial()  # whatever is attached right now is 'old'; the next new port is the next board
 
     say(f"\nFlashed {count} board(s). Roster: {roster}")
-    if not a.update and mode_first == "hub" and count >= 1:
+    if mode_first == "hub" and count >= 1:
         say("Power-up order for the sign: HUB first, then nodes in the order you want them numbered (1 = hub).")
+    say(OTA_NOTE)
 
 if __name__ == "__main__":
     main()
