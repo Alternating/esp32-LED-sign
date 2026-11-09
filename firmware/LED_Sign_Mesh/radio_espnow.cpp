@@ -241,8 +241,10 @@ static void pumpTx() {
   if (pick < 0) return;
 
   cntTx++;
-  if (esp_now_send(mac, buf, len) != ESP_OK) {   // immediate failure: callback will not fire
+  esp_err_t se = esp_now_send(mac, buf, len);
+  if (se != ESP_OK) {                            // immediate failure: callback will not fire
     cntTxFail++;
+    { char s[18]; macToStr(mac, s); Serial.printf("[RADIO] esp_now_send %s type=%d failed: %s\n", s, ((Hdr*)buf)->type, esp_err_to_name(se)); }
     sendBusy = false;
     portENTER_CRITICAL(&qMux);
     if (inflightIdx == pick) {

@@ -621,6 +621,7 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
           bi.nodeState = hb->state; bi.lastShowSeq = hb->lastShowSeq;
           memcpy(bi.buildId, bid, 4);
           portEXIT_CRITICAL(&tMux);
+          radio::addPeer(srcMac);                      // D1 belt-and-braces: idempotent, cheap when it exists
         }
         otaSeen(srcMac, bid);
       }
@@ -826,8 +827,11 @@ void begin() {
   storage::loadTable(table, storedNext);
   nextPosCached = computeNextPos();     // never trust the stored counter
   memset(info, 0, sizeof(info));
-  int n = 0; for (auto& e : table) if (e.pos) n++;
-  Serial.printf("[HUB] table loaded: %d boards, nextPos=%d\n", n, nextPosCached);
+  int n = 0;
+  for (auto& e : table) if (e.pos) { n++; radio::addPeer(e.mac); }   // D1: re-register every known node as a
+                                                                      // unicast peer after a hub reboot (nodes that
+                                                                      // never re-HELLO would otherwise be unreachable)
+  Serial.printf("[HUB] table loaded: %d boards (peers registered), nextPos=%d\n", n, nextPosCached);
 
   bool migrated = storage::loadSign(live);   // restored before the first Show
   pending = live;
