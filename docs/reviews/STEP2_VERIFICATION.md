@@ -1,0 +1,83 @@
+# Verification — Phase 1 step 2: word sequencer + synchronized word changes (hardware)
+
+Verified against `docs/build-briefs/PHASE1_STEP2_word_sequencer.md` (C1–C13) and the "Refactor disposition" at the end of `docs/reviews/STEP2_REVIEW.md` (log line formats, grouping rule: a word longer than numBoards is chunked, each chunk is its own group, the tail chunk never packs with the next word). Firmware source was **not** modified. C12 (Playwright) was run by the refactor agent; only the live-page byte identity was re-checked here.
+
+**Headline:** everything works as designed except one timing defect — the inter-word spacing is `wordPeriodMs + WORD_LEAD_MS` (1 312 ms at `wspeed 1000`), not `wordPeriodMs`. C4, C7, C10 and the soak count fail on that number alone; synchrony, ordering, grouping, migration, persistence, mode/boards changes, late join and regression all pass.
+
+## Environment
+
+| Item | Value |
+|---|---|
+| Commit under test | `285836b` firmware: step 2 — word sequencer, synchronized word changes, migration v1->v2, UI preview |
+| Build box | Qwen box (`~/esp32-led-sign`), arduino-cli at `~/.local/bin`, core esp32 3.3.12, esptool 5.3.1 |
+| FQBN | `esp32:esp32:lolin32:PartitionScheme=no_ota` |
+| Hub | `/dev/ttyUSB0`, MAC `9C:9C:1F:E3:CE:54`, role HUB from NVS, SSID `LEDSIGN-HUB` |
+| Node | `/dev/ttyUSB1`, MAC `78:E3:6D:19:18:38`, role NODE from NVS, pos 2 |
+| Flashing | esptool directly, `--baud 115200 --after no-reset` (so the **first boot could be captured** with `ser.py … reset` — the v1→v2 migration line prints once and the port is still owned by esptool when arduino-cli's hard reset boots the board). 4× "Hash of data verified" per board, ~75 s each. NVS **not** erased. |
+| WLAN | `wlp3s0` (ath10k): `wpa_supplicant -B -i wlp3s0 -c ~/v3/wpa.conf` + static `192.168.4.3/24` (no dhcpcd this time, so the hub's captive DNS never reached systemd-resolved; `getent hosts github.com` stayed correct). Cleaned up at the end (wpa_supplicant killed, address flushed, link down, routes identical). |
+| Serial | `~/v3/ser.py PORT SECS [reset\|noreset] [keys] [delay]` — wall-clock timestamps (same clock as `curl`), `dsrdtr=False, rtscts=False` opens verified not to reset. Analysis: `~/v2/an.py node.log [hub.log]` (spacing, index cycle, lead, hub–node skew by seq). All raw logs in `~/v2/` on the box. |
+| Pre-migration state (recorded before flashing, hub `s`) | `text="{check}{cross}" color=FF00FF bri=31/24 fx=static speed=500 boards=0`, `showSeq=1`, uptime 5 713 s; node `show: color=FF00FF bri=24 fx=0 period=500 numBoards=2` |
+
+## Results
+
+| Test | Result | Evidence |
+|---|---|---|
+| **C1 Build** | **PASS** | `arduino-cli compile --warnings all` → `grep -ciE "error\|warning: "` = **0**, `BUILD_EXIT=0`. `Sketch uses 1080303 bytes (51%)` / `Global variables use 55120 bytes (16%)`. `LED_Sign_Mesh.ino.bin` 1 080 448 B ≤ 1.4 MB. |
+| **C2 Migration** | **PASS** | First boot after flash (hub, 01:52:36): `[HUB] sign loaded: text="{check}{cross}" color=FF00FF bri=31 fx=static speed=500 boards=0 wspeed=2000 mode=words` → **`[HUB] sign blob migrated v1->v2 (wordPeriodMs=2000, mode=words), rewriting`** → `[HUB] sequencer rebuilt: groups=1 mode=words boards=2 period=2000` → `[HUB] sign saved` 14 ms later. Text and colour identical to the pre-flash record; `s`: `groups=1 idx=0 period=2000 nextIn=- mode=words (no timer)`. Node first boot: `apply seq=2 word=0/1 code 4 (+0 ms) color=FF00FF bri=24` (the `{cross}` symbol at pos 2). `/state` later (C12): `cfg.wspeed`, `cfg.mode`, `cfg.groups`, `cfg.groupCount`, `cfg.truncated`, `state.wordIdx` present. Hub reset in C10 did **not** re-print the migration line (blob is v2). |
+| **C3 Grouping** (boards=2) | **PASS** (5/5 == hand-computed) | Expected by the rule (chunk words > 2, tail stands alone, pack with one space ≤ 2): `GO TEAM`→GO/TE/AM; `HI`→HI; `A {heart} B`→A/{heart}/B ("A {heart}" is 3 units); `PARTY`→PA/RT/Y; `WALK THE DOG`→WA/LK/TH/E/DO/G. Actual replies: `{"text":"GO TEAM","chars":7,"boards":2,"mode":"words","groups":["GO","TE","AM"],"groupCount":3,"truncated":false,"ok":true}`; `["HI"]`,1; `["A","{heart}","B"]`,3; `["PA","RT","Y"]`,3; `["WA","LK","TH","E","DO","G"]`,6. Each followed by `[HUB] sequencer rebuilt: groups=N`. "HI" → hub `s` `groups=1 … (no timer)` (seen in C2 with the one-group `{check}{cross}` too). |
+| **C4 Sequencing** | **FAIL (timing) / PASS (ordering)** | `msg "GO TEAM"` + `wspeed 1000`, 35 s capture: node applies `word=0/3 'O'`, `1/3 'E'`, `2/3 'M'`, `0/3 'O'` … index string `012012…` with **0 discontinuities**, seq deltas all 1; hub `[HUB] apply seq=N word=i/3 'G'/'T'/'A'` for every seq, idx mismatch none. **Spacing 1 312 ± 4 ms** (n=26: mean 1 302.8 incl. one 1 088 start gap, sd 43; steady values 1 312/1 313, min 1 296, max 1 328) instead of 1 000 ± 50 → **27 applies in 35 s** (expected 30 ± 1 in 30 s). Hub shows the mechanism: `advance group 1/3 seq=23 applyAt=+300` at 43.549 exactly 1 011 ms after `apply seq=22` at 42.538; the switch then lands at +300. See **D1**. |
+| **C5 Synchrony** | **PASS** | 27 consecutive node leads (C4): **min 293, median 298, max 302 ms; 27/27 ≥ 150; 0 negative**. Soak (238 applies): min 276, median 299, max 304, 238/238 ≥ 150, 0 negative. Node `pending seq=N word=i/n in L ms` precedes every scheduled apply by ≈ 300 ms. Hub `[SHOW]` burst slots `applyAt=+300/+236/+44` (0/60/250 ms). |
+| **C6 Heartbeat non-interference** | **PASS** | C4: node applies 27 == hub applies 27 == `[HUB] advance` lines; seq deltas always 1; no apply with the same word twice except after a style change (restyle re-send, by design — see N2). Soak: 238 == 238. Heartbeats (`applyAt=+0`, same seq) never produced an apply. |
+| **C7 Speed change** | **PASS (within one period) / FAIL (absolute spacing)** | `wspeed 500` sent 01:56:40.812 (hub had applied seq 112 at 40.611): reply `{"wspeed":500,"ok":true}`; restyle re-send seq 113 (`+0 ms`, same group) at 40.850; next word seq 114 applied at **41.419 = 808 ms after seq 112** — change took effect within one period, but steady spacing is **800 ms** (= 500 + 300), gaps `800 800 801 800 815 800 801 785 815 785 800 800 800 799`. `wspeed 10000`: seq 162 → 163 spacing **10 304 ms** (01:57:28.541 → 38.845), i.e. 10 000 + 300. |
+| **C8 Mode raw** | **PASS** | `mode raw` → reply `{"mode":"raw","groups":["GO"],"groupCount":1,…}`, `[HUB] sequencer rebuilt: groups=1 mode=raw boards=2 period=1000`, burst seq 169 `group=0/1 applyAt=+0`; node `apply seq=169 word=0/1 'O' (+0 ms)` then **no apply for 13.4 s** (next was the `mode words` burst), zero `advance` lines on the hub. Hub `s` (re-run after a fresh `mode raw`, 2 s later): `groups=1 idx=0 period=1000 nextIn=- mode=raw (no timer)` / `[0]* "GO"`. `mode words` → `groups=3`, burst seq 170 `group=0/3`, node `apply seq=170 word=0/3 'O' (+0 ms)` then 171 word 1, 172 word 2 … (resumes from group 0). |
+| **C9 Boards change** | **PASS** | `boards 1` → `{"boards":1,"boardsAuto":false,"ok":true}`, `[HUB] sequencer rebuilt: groups=6 mode=words boards=1`, hub advances `1/6 … 5/6, 0/6`; `/state` (later, same setting during C13) `groups ['G','O','T','E','A','M']`. **Node (pos 2 > numBoards 1) renders blank:** `apply seq=205 word=0/6 code 0 (+0 ms) … numBoards=1`, `render code 0`, and keeps applying `code 0` on every word (206–211). `boards 0` → `{"boards":2,"boardsAuto":true}`, `rebuilt: groups=3 … boards=2`, node back to 'O'/'E'/'M'. The `boards` reply has no `groups` field (not required; `msg`/`mode`/`cfg` have it). |
+| **C10 Persistence** | **PASS** (spacing shows D1) | `wspeed 1500` + `mode words` + `msg "GO TEAM"` at 01:59:35.1 → `[HUB] sign saved` 01:59:37.137 (2.0 s). Hub reset 01:59:5x → boot `[HUB] sign loaded: text="GO TEAM" color=FF00FF bri=31 fx=static speed=500 boards=0 wspeed=1500 mode=words`, `rebuilt: groups=3 … period=1500`, **no migration line**, `SHOW_POSITION -> RUNNING` 02:00:01.455, first advance 02:00:02.962 (1.5 s later). Node: `RUNNING -> LOST_HUB` 01:59:56.4 → **`[NODE] hub clock went backwards: hub restarted, resyncing`** 01:59:58.485 → `LOST_HUB -> RUNNING` 01:59:58.496; applies resume seq 3, 4, 5 … with gaps `1808 1808 … 1808` (= 1 500 + 300). Hub `s` after boot: `groups=3 idx=0 period=1500 … mode=words (advance armed)`. |
+| **C11 Node join mid-sequence** | **PASS** | Run 1: node reset while hub cycled at 1.5 s; `NVS pos=2` → `DISCOVER -> SHOW_POSITION pos=2` (25 ms) → first apply **`seq=38 word=0/3 'O' (+0 ms)`**; hub had `apply seq=38 word=0/3 'G'` 675 ms earlier and logged `ASSIGN … pos 2 (known)` + a `seq=38 applyAt=+0` burst. Scheduled applies 39 (`word=1/3`) and 40 continued **during** the 3.0 s digit (`SHOW_POSITION -> RUNNING` 3.006 s after, then `render 'M'` = the then-current group). Run 2 (to rule out "forced 0"): first apply **`seq=57 word=1/3 'E' (+0 ms)`**, then `pending seq=58 word=2/3 in 307 ms` → apply. Seq numbers continue the hub's counter (not 1). |
+| **C12 UI (live page)** | **PASS** | `GET /` → `Content-Type: text/html`, `Content-Encoding: gzip`, `Content-Length: 8663`; `sha1(gunzip)` = **`53f0c3959c43780d71b9155794e864a1da3353d4`** = `sha1(web/index.html)` = `SHA1(source)` in `web_page.h` (29 012 B source, 8 663 B gz). Playwright/stub run and `step2_ui_message.png`: refactor agent (STEP2_REVIEW.md). `/state` via HTTP: `cfg {text "GO TEAM", color FF00FF, bri 31, briEff 24, fx static, speed 500, boards 2, boardsAuto true, wspeed 1500, mode "words", groups ["GO","TE","AM"], groupCount 3, truncated false, name, fw 1}`, `state {hubPos 1, numBoards 2, nextPos 3, wordIdx 2, clients 2, heap 178652, uptime 154, hubState RUNNING, boards[pos1 char 'A', pos2 online rssi -51 char 'M']}`. HTTP negatives: `wspeed 400` / `10001` / `mode "bogus"` → `{"err":"bad_arg","ok":false}`. |
+| **C13 Regression** | **PASS** | **A3** sticky pos: two node resets (C11) → `NVS pos=2` → `ASSIGN … (known)` → pos 2. **A5** `reset_order` (HTTP) → hub `RESET ORDER: table cleared, nextPos=2, broadcasting RESETORD x5`, `rebuilt: groups=6 … boards=1`; node `RESETORD received` → `RUNNING -> UNASSIGNED pos=0`; `/state` `numBoards 1 nextPos 2 groups [G,O,T,E,A,M]`. Node `c` → `CLAIM sent` → `UNASSIGNED -> DISCOVER` → `DISCOVER -> SHOW_POSITION pos=2` (19 ms); hub `ASSIGN … -> pos 2 (new) [claim]` + `rebuilt: groups=3 … boards=2`; `/state` `numBoards 2 nextPos 3 [(1,True),(2,True)]`. (A `c` sent while still RUNNING → `[NODE] CLAIM ignored in RUNNING`.) **B6** = C10. **Identify** `{"cmd":"identify","pos":2,"ms":1000}` ×3 → `[NODE] IDENTIFY 1000 ms` ×3 (3/3 delivered this time; step-3 D1 intermittency not reproduced in 3 tries). **Soak** 5 min 11 s, "GO TEAM" green `wspeed 1000`: node applies **238** (≈ 311 s / 1.312 s; would be ≈ 300 without D1), idx `012…` no discontinuity, seq deltas 1, leads 276–304; hub applies 238; **no LOST_HUB, no reset banner, rxDrop 0** on both; hub heap `180728 → 178412` (Δ −2.3 kB, minHeap 165 692 unchanged from before the soak), `/state.heap` over 60 polls min 175 624 max 177 744; node heap **207 200 → 207 200** (minHeap 206 888); `pos2 online` in 60/60 polls; hub `txFail=0`. |
+
+### Hub `s` during sequencing (C4, 01:55:01)
+
+```
+role=HUB pos=1 state=RUNNING nextPos=3 numBoards=2 showSeq=36
+text="GO TEAM" color=FF00FF bri=31/24 fx=static speed=500 boards=0 mirror=0
+groups=3 idx=2 period=1000 nextIn=273 ms mode=words (advance armed)
+  [0]  "GO"
+  [1]  "TE"
+  [2]* "AM"
+  78:E3:6D:19:18:38 -> pos 2  online  age=2s rssi=-48 vbat=0 char=79 nodeState=3 lastShowSeq=34
+heap=184720 minHeap=179212 channel=6(OK) uptime=151s tx=364 txFail=0 rx=20 rxDrop=0 netStackFree=9776
+web clients=1 requests=2
+```
+
+## Timing statistics
+
+| Metric | Value |
+|---|---|
+| Word spacing at `wspeed 1000` (node apply→apply) | C4: steady **1 312 ms** (26 gaps: mean 1 302.8, sd 43.3 incl. the 1 088 ms capture-start gap; 1 296–1 328). Soak: **mean 1 311.9 ms, sd 4.5, min 1 271, max 1 329** (n=237). Expected 1 000 ± 50. |
+| Spacing at 500 / 1 500 / 10 000 | 800 (785–815) / 1 808 / 10 304 ms → consistently `period + 300 (+ ≈ 8–12 ms)` |
+| Node lead at arrival | C4 (27): min 293 / median 298 / max 302 ms. Soak (238): min 276 / median 299 / max 304. 100 % ≥ 150, none negative. First-slot loss shows as a 237 ms lead (second burst slot heard) — 3 occurrences in ~300 applies. |
+| Hub-vs-node apply skew (same seq, host timestamps of the two serial logs) | C4: 10–15 ms (mean 21.4 incl. one 238 ms port-open artefact); soak: **mean 7.7 ms, sd 3.6, min 6, max 47** (n=237). Both logs are printed after the swap, so this bounds the display skew to well under one frame. |
+| Speed change latency | New period effective at the very next switch (C7: 808 ms after the last switch for 1000→500). |
+| Late-join first apply | 25 ms after `DISCOVER -> SHOW_POSITION` (run 1); run 2 heard the heartbeat and applied 8 ms after `hub learned`, 1.8 s before the ASSIGN arrived (see N4). |
+| Hub reboot → node resync | LOST_HUB at +… (10 s timeout from last Show), `hub clock went backwards` + `LOST_HUB -> RUNNING` 11 ms apart, first scheduled apply 4.8 s after that (3 s digit + 1.8 s). |
+
+## Anomalies
+
+- **N1 (= D1)** Inter-word spacing is `wordPeriodMs + WORD_LEAD_MS` at every speed tested. Also a slow drift of ≈ 8–12 ms per period on top (1 312 rather than 1 300) because `applyAt = now + WORD_LEAD_MS` is anchored to the tick that notices `nextAdvanceAt`, not to `nextAdvanceAt` itself.
+- **N2** A style/`wspeed` change during sequencing logs an extra node apply with the *same* word and `(+0 ms)` (restyle re-send with a bumped seq, e.g. seq 113 'O' after 112 'O'; seq 165 'M'; seq 161 'M'). By design (disposition S2-15); it inflates "apply count == group changes" by one per style edit, so count only scheduled applies when checking C6 across style edits.
+- **N3** Serial `s` sent in the same line batch as a JSON command prints the **pre-change** sequencer state (`groups=3 … mode=words` right after the `mode raw` reply; `groups=6` right after `boards 0`), because the command is applied on the next core-1 tick (~30 ms later). Cosmetic; re-sending `s` shows the new state.
+- **N4** Second node power-cycle in C11: the node heard a heartbeat, applied it and ran two scheduled applies while still in `DISCOVER` (pos from NVS), and the `DISCOVER -> SHOW_POSITION` (= ASSIGN received) came **2.07 s** after `hub learned` versus 20–25 ms in the other three joins. Looks like one lost HELLO and a retry; hub side not captured for that run. Harmless (display was already correct), but worth a glance at the HELLO retry interval.
+- **N5** An UNASSIGNED node (after `reset_order`, pos 0) still applies and logs every scheduled Show (`apply seq=153 word=1/6 code 0 … numBoards=1`); it renders blank. Not wrong, just noisy.
+- **N6** After `boards 1`, the pos-2 node renders `code 0` (blank) for every group — expected from the brief; recorded here because the owner will see one dark board.
+- **N7** `/state.clients` = 2 with one station (the box) — same over-count as step-3 N1 (ESP-NOW peer counted), unchanged.
+- **N8** The `boards` reply does not include `groups`/`groupCount` (the `msg`, `mode` replies and `cfg` do). Not required by the brief.
+
+## Defects for fix agent
+
+- **D1 — word period is lead-inflated** (`firmware/LED_Sign_Mesh/hub.cpp`). `nextAdvanceAt` is the instant the *advance burst* is sent, and the switch is scheduled `applyAt = now + WORD_LEAD_MS` (line 583); but it is armed as `nextAdvanceAt = applyAt + live.wordPeriodMs` (line 197, and `now + wordPeriodMs` at 175/575, `lastApplyAt + wordPeriodMs` at 185). Net effect: switch-to-switch = `wordPeriodMs + WORD_LEAD_MS` (+ tick latency), measured 1 312 / 800 / 1 808 / 10 304 ms for 1000 / 500 / 1500 / 10000. Fix: arm the burst `WORD_LEAD_MS` *before* the intended switch, e.g. keep `nextSwitchAt = lastApplyAt + wordPeriodMs` and fire the advance when `(int32_t)(now - (nextSwitchAt - WORD_LEAD_MS)) >= 0` with `applyAt = nextSwitchAt` (anchored, which also removes the ≈ 10 ms/period drift); guard `wordPeriodMs ≥ WORD_LEAD_MS` is already true (min 500). The `s` output `nextIn` and the `wspeed`-re-arm in `restyle()` must use the same anchor. Re-verify C4 (30 ± 1 applies in 30 s), C7 (500 / 10 000 ms) and the soak count (≈ 300 in 5 min) afterwards.
+- Nothing else blocking. N2/N3 are cosmetic; N4 is a one-off worth watching in the next soak.
+
+## Final state of the bench
+
+Hub `s` at 02:11:07: `text="GO TEAM" color=00FF00 bri=100/100 fx=static speed=500 boards=0`, `groups=3 idx=1 period=2000 … mode=words (advance armed)`; `/state cfg`: `GO TEAM 00FF00 100 static wspeed 2000 mode words groups ['GO','TE','AM']` (saved to NVS). Box WLAN detached, routes/DNS as found. Both boards running fw `285836b`.
