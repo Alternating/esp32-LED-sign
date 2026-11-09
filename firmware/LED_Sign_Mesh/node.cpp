@@ -22,6 +22,13 @@
 // handlePacket() runs on core 0 and only updates state/flags; render() on core 1 draws.
 // Styling (brief item 5): render() colours the glyph with display::styled() at hubNow(), the
 // hub clock reconstructed from Show.hubMillis with a low-pass offset (alpha = 1/4).
+//
+// Show application (step-2 brief item 4): two slots under showMux, `applied` (drawn) and
+// `pending` (scheduled). Ordering is by signed seq difference against the NEWEST seq we know
+// (pending if any, else applied), so a uint16 wrap is safe and a heartbeat repeating an older
+// or the pending seq is ignored. A newer Show with applyAtHubMs 0 or already past applies at
+// once; otherwise it waits in `pending` and render() swaps it in when hubNow() >= applyAtHubMs.
+// Applying a Show drops a pending one that is not newer than it.
 
 namespace node {
 
@@ -32,10 +39,12 @@ static uint32_t stateEnteredAt = 0;
 static uint8_t hubMac[6] = {0};
 static volatile bool hubKnown = false;
 
-// Latest Show, copied under showMux by the RX handler, read by render()
-static Show latestShow;
-static volatile bool     haveShow = false;
+// Show slots: written under showMux by the RX handler (core 0) and render() (core 1)
+static Show applied, pending;
+static volatile bool     haveApplied = false, havePending = false;
+static int32_t           pendingLead = 0;           // applyAtHubMs - hubNow() when `pending` arrived (for the log)
 static volatile uint32_t lastShowMs = 0;
+static volatile uint32_t lastHubMillis = 0;         // hub clock of the last Show (hub-restart detection)
 static portMUX_TYPE showMux = portMUX_INITIALIZER_UNLOCKED;
 
 static volatile bool showBang = false;          // SHOW_POSITION shows "!" (ASSIGN pos 0)
@@ -105,13 +114,30 @@ static void sendHb() {
   Hb m;
   m.h = makeHdr(HB, myPos, POS_HUB);
   m.vbat_mV = battery::readMilliVolts(); m.rssi = hubRssi; m.shownChar = renderedChar;
-  m.state = (uint8_t)st; m.lastShowSeq = haveShow ? latestShow.showSeq : 0;
+  m.state = (uint8_t)st; m.lastShowSeq = haveApplied ? applied.showSeq : 0;
   radio::send(hubMac, &m, sizeof(m), false);
 }
 
 static void savePos(uint8_t p) {
   if (p != myPos) storage::saveNodePos(p);
   myPos = p;
+}
+
+static void dropPending() {                 // position changed: a frame scheduled for the old position must not apply
+  portENTER_CRITICAL(&showMux);
+  havePending = false;
+  portEXIT_CRITICAL(&showMux);
+}
+
+// One log format for every applied Show (immediate and scheduled): lead = applyAtHubMs - hubNow()
+// at arrival (0 for apply-now frames, negative = arrived late).
+static void logApply(const Show& s, int32_t lead) {
+  uint8_t c = (myPos >= 1 && myPos <= MAX_BOARDS) ? (uint8_t)s.chars[myPos - 1] : 0;
+  char cs[12];
+  if (c >= 32) snprintf(cs, sizeof(cs), "'%c'", (char)c); else snprintf(cs, sizeof(cs), "code %u", c);
+  Serial.printf("[NODE] apply seq=%u word=%u/%u %s (%+ld ms) color=%02X%02X%02X bri=%u fx=%u period=%u numBoards=%u\n",
+                (unsigned)s.showSeq, s.wordIdx, s.wordCount, cs, (long)lead, s.r, s.g, s.b, s.brightness, s.effect,
+                s.effectPeriodMs, s.numBoards);
 }
 
 // ---------------- RX (core 0) ----------------
@@ -137,20 +163,53 @@ static void onShow(const uint8_t* srcMac, const Show* s, int8_t rssi) {
   learnHub(srcMac);
   hubRssi = rssi;
   lastShowMs = millis();                            // any Show feeds the LOST_HUB timer
-  bool seqChanged = !haveShow || s->showSeq != latestShow.showSeq;
-  bool apply = seqChanged || st != NodeState::RUNNING;
-  if (apply) {
+
+  // Hub restart: its clock and showSeq start over. Forget our ordering and re-seed the offset
+  // (the low-pass would otherwise take seconds to converge and the signed seq test would
+  // ignore every frame until the hub caught up).
+  bool hubReset = haveApplied && (int32_t)(s->hubMillis - lastHubMillis) < -5000;
+  lastHubMillis = s->hubMillis;
+  if (hubReset) {
+    Serial.println("[NODE] hub clock went backwards: hub restarted, resyncing");
     portENTER_CRITICAL(&showMux);
-    memcpy(&latestShow, s, sizeof(Show));
-    haveShow = true;
+    haveApplied = false; havePending = false;
     portEXIT_CRITICAL(&showMux);
-    if (seqChanged)
-      Serial.printf("[NODE] apply seq=%u color=%02X%02X%02X bri=%u fx=%u period=%u numBoards=%u\n",
-                    (unsigned)s->showSeq, s->r, s->g, s->b, s->brightness, s->effect, s->effectPeriodMs, s->numBoards);
+    hubOffsetInit = false;
   }
+
+  // Clock first, so the lead below uses the fresh offset
   int32_t sample = (int32_t)(s->hubMillis + 2 - millis());     // +2 ms air/queue latency
   if (!hubOffsetInit) { hubOffset = sample; hubOffsetInit = true; }
   else hubOffset = hubOffset + (sample - hubOffset) / 4;
+
+  // Ordering against the newest seq we know; <= 0 = duplicate/older (heartbeat of the applied
+  // group, repeat of the pending burst, a stale heartbeat overtaking a scheduled frame): ignore.
+  bool known; uint16_t newest;
+  portENTER_CRITICAL(&showMux);
+  known = haveApplied || havePending;
+  newest = havePending ? pending.showSeq : applied.showSeq;
+  portEXIT_CRITICAL(&showMux);
+  if (known && (int16_t)(s->showSeq - newest) <= 0) {
+    if (st == NodeState::LOST_HUB) setState(NodeState::RUNNING);
+    return;
+  }
+
+  int32_t lead = s->applyAtHubMs ? (int32_t)(s->applyAtHubMs - hubNow()) : 0;
+  if (s->applyAtHubMs == 0 || lead <= 0) {          // apply now (a pending frame is never newer than this one)
+    portENTER_CRITICAL(&showMux);
+    memcpy(&applied, s, sizeof(Show));
+    haveApplied = true;
+    havePending = false;
+    portEXIT_CRITICAL(&showMux);
+    logApply(*s, lead);
+  } else {                                          // scheduled: wait for applyAtHubMs in render()
+    portENTER_CRITICAL(&showMux);
+    memcpy(&pending, s, sizeof(Show));
+    pendingLead = lead;
+    havePending = true;
+    portEXIT_CRITICAL(&showMux);
+    Serial.printf("[NODE] pending seq=%u word=%u/%u in %ld ms\n", (unsigned)s->showSeq, s->wordIdx, s->wordCount, (long)lead);
+  }
   if (st == NodeState::LOST_HUB) setState(NodeState::RUNNING);
 }
 
@@ -171,6 +230,7 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
         if (sp->newPos >= 1 && sp->newPos <= MAX_BOARDS) {
           Serial.printf("[NODE] SETPOS %d -> %d\n", myPos, sp->newPos);
           showBang = false;
+          dropPending();
           savePos(sp->newPos);
           st = NodeState::BOOT;                       // force the transition log even if already SHOW_POSITION
           setState(NodeState::SHOW_POSITION);
@@ -189,6 +249,7 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
     case RESETORD:
       if (st != NodeState::UNASSIGNED) {
         Serial.println("[NODE] RESETORD received");
+        dropPending();
         savePos(0);
         showBang = false;
         setState(NodeState::UNASSIGNED);
@@ -198,6 +259,7 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
       if (h->flags & FLAG_NEEDS_ACK) { learnHub(srcMac); sendAck(FORGET, h->seq); }      // ACK even when already UNASSIGNED (D1 retries)
       if (myPos && h->dstPos == myPos) {
         Serial.printf("[NODE] FORGET from hub (pos %d): clearing NVS pos -> UNASSIGNED\n", myPos);
+        dropPending();
         savePos(0);
         showBang = false;
         setState(NodeState::UNASSIGNED);
@@ -254,7 +316,7 @@ void tick() {
     case NodeState::SHOW_POSITION: {
       if (now - stateEnteredAt < SHOW_POSITION_MIN) break;
       if (showBang) { showBang = false; setState(NodeState::UNASSIGNED); }
-      else if (haveShow && now - lastShowMs < LOST_HUB_TIMEOUT) setState(NodeState::RUNNING);
+      else if (haveApplied && now - lastShowMs < LOST_HUB_TIMEOUT) setState(NodeState::RUNNING);
       else if (now - stateEnteredAt >= SHOW_POSITION_MIN + LOST_HUB_TIMEOUT) setState(NodeState::LOST_HUB);
       break;
     }
@@ -296,10 +358,24 @@ void tick() {
 void render() {
   if (display::identifyActive()) { display::identifyRender(); return; }
 
+  // Scheduled Show due? Swap it in at the hub-clock instant (same test as hub::applyDue()).
+  if (havePending) {
+    Show p; bool due = false; int32_t lead = 0;
+    portENTER_CRITICAL(&showMux);
+    if (havePending && (int32_t)(hubNow() - pending.applyAtHubMs) >= 0) {
+      memcpy(&p, &pending, sizeof(Show));
+      memcpy(&applied, &pending, sizeof(Show));
+      lead = pendingLead;
+      haveApplied = true; havePending = false; due = true;
+    }
+    portEXIT_CRITICAL(&showMux);
+    if (due) logApply(p, lead);
+  }
+
   Show s; bool have;
   portENTER_CRITICAL(&showMux);
-  have = haveShow;
-  if (have) memcpy(&s, &latestShow, sizeof(Show));
+  have = haveApplied;
+  if (have) memcpy(&s, &applied, sizeof(Show));
   portEXIT_CRITICAL(&showMux);
 
   CRGB hubColor = have ? display::styled(s.r, s.g, s.b, s.brightness, s.effect, s.effectPeriodMs, hubNow())
@@ -345,13 +421,16 @@ void render() {
 void printStatus() {
   char ms[18]; radio::macToStr(hubMac, ms);
   Serial.printf("role=NODE pos=%d state=%s hub=%s haveShow=%d showSeq=%u lastShow=%lums ago rssi=%d mirror=%d hubOffset=%ld\n",
-                myPos, stateName(st), hubKnown ? ms : "none", haveShow ? 1 : 0,
-                haveShow ? latestShow.showSeq : 0, (unsigned long)(millis() - lastShowMs), hubRssi, display::mirror,
+                myPos, stateName(st), hubKnown ? ms : "none", haveApplied ? 1 : 0,
+                haveApplied ? applied.showSeq : 0, (unsigned long)(millis() - lastShowMs), hubRssi, display::mirror,
                 (long)hubOffset);
-  if (haveShow)
-    Serial.printf("show: color=%02X%02X%02X bri=%u fx=%u period=%u numBoards=%u\n",
-                  latestShow.r, latestShow.g, latestShow.b, latestShow.brightness, latestShow.effect,
-                  latestShow.effectPeriodMs, latestShow.numBoards);
+  if (haveApplied)
+    Serial.printf("show: color=%02X%02X%02X bri=%u fx=%u period=%u numBoards=%u word=%u/%u wspeed=%u\n",
+                  applied.r, applied.g, applied.b, applied.brightness, applied.effect,
+                  applied.effectPeriodMs, applied.numBoards, applied.wordIdx, applied.wordCount, applied.wordPeriodMs);
+  if (havePending)
+    Serial.printf("pending: seq=%u word=%u/%u applyAt=%lu (in %ld ms)\n", (unsigned)pending.showSeq, pending.wordIdx,
+                  pending.wordCount, (unsigned long)pending.applyAtHubMs, (long)(int32_t)(pending.applyAtHubMs - hubNow()));
 }
 
 } // namespace node

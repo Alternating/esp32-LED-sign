@@ -30,6 +30,7 @@
 #define SHOW_BURST_GAP1     60      // Show burst on change: 0 / 60 / 250 ms
 #define SHOW_BURST_GAP2     190
 #define SHOW_HEARTBEAT      500
+constexpr uint16_t WORD_LEAD_MS = 300;   // word-advance Show: applyAtHubMs = hubMillis + lead (plan §4.2)
 #define LOST_HUB_TIMEOUT    5000
 #define DISCOVER_TIMEOUT    15000
 #define SHOW_POSITION_MIN   3000

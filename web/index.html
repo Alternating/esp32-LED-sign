@@ -48,6 +48,10 @@ input[type="color"] { height: 44px; padding: 4px; margin-top: 8px; }
 .segments { display: flex; gap: 4px; }
 .segment { flex: 1; padding: 10px 4px; background: #3d3d3d; border-radius: 4px; text-align: center; cursor: pointer; border: 1px solid #444; font-size: 14px; touch-action: manipulation; }
 .segment.active { background: #007bff; color: #fff; border-color: #007bff; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; min-height: 34px; }
+.chip { padding: 6px 10px; background: #3d3d3d; border: 1px solid #555; border-radius: 6px; font-size: 15px; letter-spacing: 1px; font-family: Menlo, Consolas, monospace; white-space: pre; color: #e0e0e0; }
+.chip.on { background: #007bff; border-color: #007bff; color: #fff; }
+.chip.blank { color: #888; font-style: italic; letter-spacing: 0; font-family: inherit; }
 .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .board-card { background: #3d3d3d; border-radius: 6px; padding: 10px; border: 2px solid #555; }
 .board-card.online { border-color: #28a745; }
@@ -98,6 +102,14 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       <button class="symbol-btn" data-sym="happy" title="{happy}">:)</button>
       <button class="symbol-btn" data-sym="sad" title="{sad}">:(</button>
     </div>
+    <label>Preview <span id="groupsHint" class="hint" style="display:inline;margin:0 0 0 8px"></span></label>
+    <div class="chips" id="groupsPreview"></div>
+    <div class="segments" id="modeSegments">
+      <div class="segment active" data-mode="words">Words</div>
+      <div class="segment" data-mode="raw">Raw</div>
+    </div>
+    <label for="wspeedSlider">Word speed <span id="wspeedVal" class="value">2.0 s</span></label>
+    <input type="range" id="wspeedSlider" min="500" max="10000" step="100" value="2000">
     <button class="btn" id="sendBtn">Send</button>
   </div>
 
@@ -160,10 +172,14 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
   var S = { cfg: null, state: null };
   var lastCfgText = null, lastName = null;
   var focusedText = false, inflight = false, polling = false;
-  var briT = null, speedT = null, briTouched = 0, speedTouched = 0;
+  var briT = null, speedT = null, wspeedT = null, briTouched = 0, speedTouched = 0, wspeedTouched = 0;
   var logLines = [];
   var SYM = { heart: '{heart}', star: '{star}', check: '{check}', cross: '{cross}', right: '{right}', left: '{left}',
               up: '{up}', down: '{down}', diamond: '{diamond}', circle: '{circle}', happy: '{happy}', sad: '{sad}' };
+  // Chip glyphs for tokens (fixed map, never random): heart star check cross right left up down diamond circle happy sad
+  var GLYPH = { heart: '\u2764', star: '\u2605', check: '\u2713', cross: '\u2717', right: '\u2192', left: '\u2190',
+                up: '\u2191', down: '\u2193', diamond: '\u25C6', circle: '\u25CF', happy: '\u263A', sad: '\u2639' };
+  var MAX_GROUPS = 20;
 
   function $(id) { return document.getElementById(id); }
   function each(list, fn) { for (var i = 0; i < list.length; i++) fn(list[i], i); }
@@ -229,15 +245,104 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
 
   // ---------- message ----------
   function numBoards() { return (S.state && S.state.numBoards) || 1; }
-  function laidOut(text) { return text.replace(/\{[a-z]+\}/gi, '#').length; }
+  function curMode() { return S.cfg && S.cfg.mode === 'raw' ? 'raw' : 'words'; }
+  function laidOut(text) { return tokenize(text).length; }
   function updateCharCount() {
     var n = laidOut($('msgText').value.replace(/\s+$/, ''));
     var b = numBoards();
     var h = $('charHint');
-    h.textContent = n + ' / ' + b + ' boards' + (n > b ? ' - extra characters are dropped' : '');
-    h.className = 'hint' + (n > b ? ' over' : '');
+    var over = curMode() === 'raw' && n > b;       // words mode wraps into groups instead of dropping
+    h.textContent = n + ' / ' + b + ' boards' + (over ? ' - extra characters are dropped' : '');
+    h.className = 'hint' + (over ? ' over' : '');
+    renderGroupsPreview();
   }
   $('msgText').addEventListener('input', updateCharCount);
+
+  // ---------- word groups (JS port of sequencer::rebuild, see sequencer.h for the rule) ----------
+  // Units: a 1-char string (uppercased; ' ' = separator) or { sym: 'heart' } for a known {token}.
+  // Unknown {xyz} passes through literally, like the firmware.
+  function tokenize(text) {
+    var units = [], i = 0, n = text.length;
+    while (i < n && units.length < 60) {
+      var c = text.charAt(i);
+      if (c === '{') {
+        var e = text.indexOf('}', i);
+        if (e > i + 1 && e - i - 1 < 16) {
+          var name = text.substring(i + 1, e).toLowerCase();
+          if (SYM.hasOwnProperty(name)) { units.push({ sym: name }); i = e + 1; continue; }
+        }
+      }
+      units.push(c >= 'a' && c <= 'z' ? c.toUpperCase() : c);   // ASCII only, like the firmware's toupper()
+      i++;
+    }
+    return units;
+  }
+  function groupsFor(units, boards, mode) {
+    var nb = Math.max(1, Math.min(10, boards | 0));
+    var groups = [], truncated = false;
+    function push(g) { if (groups.length >= MAX_GROUPS) { truncated = true; return; } groups.push(g); }
+    if (mode === 'raw') { push(units.slice(0, nb)); return { groups: groups, truncated: false }; }
+    var cur = [], i = 0, n = units.length;
+    while (i < n) {
+      if (units[i] === ' ') { i++; continue; }
+      var ws = i;
+      while (i < n && units[i] !== ' ') i++;
+      var word = units.slice(ws, i), wl = word.length;
+      if (wl > nb) {                                   // chunk: each piece is its own group
+        if (cur.length) { push(cur); cur = []; }
+        for (var off = 0; off < wl; off += nb) push(word.slice(off, off + nb));
+        continue;
+      }
+      var need = wl + (cur.length ? 1 : 0);
+      if (cur.length + need <= nb) { if (cur.length) cur.push(' '); cur = cur.concat(word); }
+      else { push(cur); cur = word; }
+    }
+    if (cur.length) push(cur);
+    if (!groups.length) push([]);
+    return { groups: groups, truncated: truncated };
+  }
+  function unitText(u) { return typeof u === 'string' ? u : (GLYPH[u.sym] || '?'); }
+  function groupText(g) { var t = ''; for (var i = 0; i < g.length; i++) t += unitText(g[i]); return t; }
+
+  function renderGroupsPreview() {
+    var ta = $('msgText');
+    var text = ta.value.replace(/\s+$/, '');
+    var boards = numBoards(), mode = curMode();
+    var r = groupsFor(tokenize(text), boards, mode);
+    var p = $('groupsPreview');
+    p.innerHTML = '';
+    // Highlight the hub's current group only while the textarea shows the message the hub is running
+    var live = S.state && lastCfgText !== null && text === lastCfgText.replace(/\s+$/, '') ? S.state.wordIdx : -1;
+    each(r.groups, function (g, idx) {
+      var chip = el('div', 'chip' + (idx === live ? ' on' : '') + (g.length ? '' : ' blank'), g.length ? groupText(g) : '(blank)');
+      chip.title = 'group ' + (idx + 1) + ' of ' + r.groups.length;
+      p.appendChild(chip);
+    });
+    $('groupsHint').textContent = r.groups.length + ' group' + (r.groups.length === 1 ? '' : 's') + ' \u00b7 ' +
+      boards + ' board' + (boards === 1 ? '' : 's') + (mode === 'raw' ? ' \u00b7 raw' : '') + (r.truncated ? ' \u00b7 truncated at 20' : '');
+  }
+
+  function markMode(mode) {
+    each(all('#modeSegments .segment'), function (x) { x.classList.toggle('active', x.getAttribute('data-mode') === mode); });
+  }
+  each(all('#modeSegments .segment'), function (seg) {
+    seg.onclick = function () {
+      var mode = seg.getAttribute('data-mode');
+      markMode(mode);
+      if (S.cfg) S.cfg.mode = mode;
+      updateCharCount();
+      sendCmd({ cmd: 'mode', mode: mode }, function (d) { if (d && d.ok && d.mode) { if (S.cfg) S.cfg.mode = d.mode; markMode(d.mode); updateCharCount(); } });
+    };
+  });
+
+  function wspeedLabel(v) { $('wspeedVal').textContent = (v / 1000).toFixed(1) + ' s'; }
+  $('wspeedSlider').oninput = function () {
+    var v = parseInt(this.value, 10);
+    wspeedTouched = Date.now();
+    wspeedLabel(v);
+    clearTimeout(wspeedT);
+    wspeedT = setTimeout(function () { sendCmd({ cmd: 'wspeed', ms: v }, function (d) { if (d && d.ok && S.cfg) S.cfg.wspeed = d.wspeed; }); }, 300);
+  };
 
   function insertSymbol(token) {
     var ta = $('msgText');
@@ -264,8 +369,10 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       if (d && d.ok) {
         lastCfgText = d.text;
         if (typeof d.text === 'string') $('msgText').value = d.text;
+        if (S.cfg && d.mode) S.cfg.mode = d.mode;
+        if (S.state && typeof d.groupCount === 'number') S.state.wordIdx = 0;
         updateCharCount();
-        toast('Sent (' + d.chars + ' chars)', true);
+        toast('Sent (' + (d.groupCount || 1) + ' group' + (d.groupCount === 1 ? '' : 's') + ')', true);
       }
     });
   };
@@ -321,13 +428,13 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
   };
 
   function currentFx() {
-    var a = document.querySelector('.segment.active');
+    var a = document.querySelector('#fxSegments .segment.active');
     return a ? a.getAttribute('data-fx') : 'static';
   }
   function markFx(name) {
-    each(all('.segment'), function (x) { x.classList.toggle('active', x.getAttribute('data-fx') === name); });
+    each(all('#fxSegments .segment'), function (x) { x.classList.toggle('active', x.getAttribute('data-fx') === name); });
   }
-  each(all('.segment'), function (seg) {
+  each(all('#fxSegments .segment'), function (seg) {
     seg.onclick = function () {
       var name = seg.getAttribute('data-fx');
       markFx(name);
@@ -432,7 +539,9 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       if (lastCfgText === null ? ta.value === '' : ta.value === lastCfgText) ta.value = cfg.text;
       lastCfgText = cfg.text;
     }
-    updateCharCount();
+    markMode(cfg.mode === 'raw' ? 'raw' : 'words');
+    if (Date.now() - wspeedTouched > 1500 && typeof cfg.wspeed === 'number') { $('wspeedSlider').value = cfg.wspeed; wspeedLabel(cfg.wspeed); }
+    updateCharCount();                     // also redraws the preview chips (boards / mode / wordIdx may have changed)
 
     // Look
     if (cfg.color && /^[0-9A-Fa-f]{6}$/.test(cfg.color)) {
@@ -477,6 +586,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
   document.addEventListener('focusin', function (e) { if (isTextField(e.target)) focusedText = true; });
   document.addEventListener('focusout', function (e) { if (isTextField(e.target)) focusedText = false; });
 
+  updateCharCount();
   pollState();
   setInterval(function () { if (!focusedText) pollState(); }, 2000);
 })();

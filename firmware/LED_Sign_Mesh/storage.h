@@ -32,8 +32,10 @@ void clearTable();
 uint8_t loadNodePos();
 void    saveNodePos(uint8_t pos);
 
-// Sign configuration: one blob prefixed with SIGN_BLOB_VER; wrong size/version -> SIGN_DEFAULT
-void loadSign(SignState& s);
+// Sign configuration: one blob prefixed with SIGN_BLOB_VER. A v1 (step-3) blob is migrated in
+// RAM (new fields = defaults) and the function returns true so the caller can rewrite it as v2;
+// any other size/version -> SIGN_DEFAULT (logged). Returns false when nothing was migrated.
+bool loadSign(SignState& s);
 void saveSign(const SignState& s);
 
 // AP SSID (namespace "sys"); out gets def when nothing is stored. Returns true if stored.

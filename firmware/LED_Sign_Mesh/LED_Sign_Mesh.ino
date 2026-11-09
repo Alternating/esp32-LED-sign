@@ -1,6 +1,7 @@
 /*
- * LED_Sign_Mesh — Phase 1 step 3: ESP-NOW radio + numbering (step 1) plus the hub's web
- * transport (captive portal, JSON commands, phone UI), node/hub styling and persistence.
+ * LED_Sign_Mesh — Phase 1 steps 1-3: ESP-NOW radio + numbering (step 1), the hub's web
+ * transport (captive portal, JSON commands, phone UI), styling and persistence (step 3), and
+ * the word sequencer with synchronized word changes (step 2: Show.applyAtHubMs, pending Shows).
  * Board: LOLIN32 (esp32:esp32:lolin32:PartitionScheme=no_ota), core 3.3.12, FastLED 3.10.9,
  * ArduinoJson 7.4.3. One binary for hub and node; role persisted in NVS.
  *
@@ -10,8 +11,9 @@
  *   Either way the new role is used immediately, no restart.
  *
  * Serial console (single letters act immediately; 't' and '{' take the rest of the line):
- *   hub : r = reset order, i = identify all, t<text> = msg alias, s = status, m = toggle mirror,
- *         w = web stats, {json} = command (same handler as POST /cmd; reply printed)
+ *   hub : r = reset order, i = identify all, n = next word group now, t<text> = msg alias,
+ *         s = status, m = toggle mirror, w = web stats,
+ *         {json} = command (same handler as POST /cmd; reply printed)
  *   node: c = claim, f = forget, s = status, m = toggle mirror
  *
  * Threading: loop() on core 1 = buttons, serial, role tick, render, FastLED.show() <= 60 Hz,
@@ -117,10 +119,11 @@ static void runCommand(char c) {
       break;
     case 'r': if (role == Role::HUB) hub::onResetOrd();    else Serial.println("? (hub only)"); break;
     case 'i': if (role == Role::HUB) hub::onIdentifyAll(); else Serial.println("? (hub only)"); break;
+    case 'n': if (role == Role::HUB) hub::nextGroup();     else Serial.println("? (hub only)"); break;
     case 'c': if (role == Role::NODE) node::onClaim();     else Serial.println("? (node only)"); break;
     case 'f': if (role == Role::NODE) node::onForget();    else Serial.println("? (node only)"); break;
     case '\r': case '\n': case ' ': break;
-    default:  Serial.printf("? unknown '%c' (r i t<text> {json} s m w | c f s m)\n", c); break;
+    default:  Serial.printf("? unknown '%c' (r i n t<text> {json} s m w | c f s m)\n", c); break;
   }
 }
 

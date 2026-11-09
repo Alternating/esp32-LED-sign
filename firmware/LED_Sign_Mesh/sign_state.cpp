@@ -2,7 +2,7 @@
 #include <string.h>
 #include <ctype.h>
 
-const SignState SIGN_DEFAULT = { "HI", 0, 255, 0, false, 100, FX_STATIC, 500, 0 };
+const SignState SIGN_DEFAULT = { "HI", 0, 255, 0, false, 100, FX_STATIC, 500, 0, 2000, SEQ_WORDS };
 
 struct SymbolEntry { const char* name; char code; };
 static const SymbolEntry SYMBOLS[] = {
@@ -31,6 +31,16 @@ int fxFromName(const char* name) {
   return -1;
 }
 
+static const char* const MODE_NAMES[] = { "words", "raw" };
+
+const char* modeName(uint8_t mode) { return mode <= SEQ_RAW ? MODE_NAMES[mode] : "words"; }
+
+int modeFromName(const char* name) {
+  if (!name) return -1;
+  for (int i = 0; i <= SEQ_RAW; i++) if (strcasecmp(MODE_NAMES[i], name) == 0) return i;
+  return -1;
+}
+
 uint8_t signCap(const SignState& s) {
   if (s.rainbow || s.effect == FX_CYCLE) return 70;
   int ch = (s.r >= 64) + (s.g >= 64) + (s.b >= 64);
@@ -42,23 +52,31 @@ uint8_t signBriEff(const SignState& s) {
   return (uint8_t)((uint16_t)bri * signCap(s) / 100);
 }
 
-uint8_t signLayout(const SignState& s, char out[MAX_BOARDS]) {
-  memset(out, 0, MAX_BOARDS);
-  size_t len = strnlen(s.text, SIGN_TEXT_MAX);
+uint8_t signUnits(const char* text, char out[SIGN_TEXT_MAX]) {
+  size_t len = strnlen(text, SIGN_TEXT_MAX);
   uint8_t o = 0;
-  for (size_t i = 0; i < len && o < MAX_BOARDS; ) {
-    if (s.text[i] == '{') {
-      const char* e = (const char*)memchr(s.text + i, '}', len - i);
+  for (size_t i = 0; i < len && o < SIGN_TEXT_MAX; ) {
+    if (text[i] == '{') {
+      const char* e = (const char*)memchr(text + i, '}', len - i);
       if (e) {
-        size_t tlen = (size_t)(e - (s.text + i)) - 1;
+        size_t tlen = (size_t)(e - (text + i)) - 1;
         if (tlen >= 1 && tlen < 16) {
-          char tok[16]; memcpy(tok, s.text + i + 1, tlen); tok[tlen] = 0;
+          char tok[16]; memcpy(tok, text + i + 1, tlen); tok[tlen] = 0;
           char code = symbolCode(tok);
           if (code) { out[o++] = code; i += tlen + 2; continue; }
         }
       }
     }
-    out[o++] = (char)toupper((unsigned char)s.text[i++]);   // unknown tokens pass through literally
+    out[o++] = (char)toupper((unsigned char)text[i++]);   // unknown tokens pass through literally
   }
   return o;
+}
+
+uint8_t signLayout(const SignState& s, char out[MAX_BOARDS]) {
+  char units[SIGN_TEXT_MAX];
+  uint8_t n = signUnits(s.text, units);
+  if (n > MAX_BOARDS) n = MAX_BOARDS;
+  memset(out, 0, MAX_BOARDS);
+  memcpy(out, units, n);
+  return n;
 }

@@ -2,6 +2,7 @@
 #include "hub.h"
 #include "storage.h"
 #include "sign_state.h"
+#include "sequencer.h"
 #include <string.h>
 #include <ctype.h>
 
@@ -33,7 +34,19 @@ static void echoSign(const SignState& s, JsonDocument& reply) {
   reply["speed"] = s.effectPeriodMs;
 }
 
-// ---- msg: uppercase outside {tokens}, <= 60 chars, laid out one char per position ----
+// Word groups of `s` for the effective board count (local Sequencer: predicts what tick() applies)
+static void putGroups(const SignState& s, JsonDocument& reply) {
+  uint8_t boards = s.boards ? s.boards : hub::numBoardsEffective();
+  sequencer::Sequencer sq;
+  sq.rebuild(s, boards);
+  JsonArray groups = reply["groups"].to<JsonArray>();
+  char gs[sequencer::GROUP_STR_MAX];
+  for (uint8_t i = 0; i < sq.groupCount(); i++) { sq.groupString(i, gs, sizeof(gs)); groups.add(gs); }
+  reply["groupCount"] = sq.groupCount();
+  reply["truncated"] = sq.truncated();
+}
+
+// ---- msg: uppercase outside {tokens}, <= 60 chars; reply predicts the word groups ----
 static bool cmdMsg(JsonDocument& cmd, JsonDocument& reply) {
   const char* txt = str(cmd, "text");
   if (!txt) return fail(reply, "bad_arg");
@@ -52,8 +65,10 @@ static bool cmdMsg(JsonDocument& cmd, JsonDocument& reply) {
   uint8_t used = signLayout(s, chars);
   hub::applySign(s);
   reply["text"] = s.text;
-  reply["chars"] = used;
+  reply["chars"] = used;                 // raw one-per-position count (UI char counter)
   reply["boards"] = hub::numBoardsEffective();
+  reply["mode"] = modeName(s.mode);
+  putGroups(s, reply);
   if (truncated) reply["note"] = "truncated to 60 chars";
   return true;
 }
@@ -119,6 +134,30 @@ static bool cmdBoards(JsonDocument& cmd, JsonDocument& reply) {
   return true;
 }
 
+// ---- wspeed: ms 500..10000 (word period; takes effect from the next advance, index kept) ----
+static bool cmdWspeed(JsonDocument& cmd, JsonDocument& reply) {
+  if (!cmd["ms"].is<int>()) return fail(reply, "bad_arg");
+  int ms = cmd["ms"].as<int>();
+  if (ms < 500 || ms > 10000) return fail(reply, "bad_arg");
+  SignState s = hub::sign();
+  s.wordPeriodMs = (uint16_t)ms;
+  hub::applySign(s);
+  reply["wspeed"] = ms;
+  return true;
+}
+
+// ---- mode: "words" | "raw" (regroups from group 0) ----
+static bool cmdMode(JsonDocument& cmd, JsonDocument& reply) {
+  int m = modeFromName(str(cmd, "mode"));
+  if (m < 0) return fail(reply, "bad_arg");
+  SignState s = hub::sign();
+  s.mode = (uint8_t)m;
+  hub::applySign(s);
+  reply["mode"] = modeName(s.mode);
+  putGroups(s, reply);
+  return true;
+}
+
 // ---- identify: pos 1..10 or 255, ms optional ----
 static bool cmdIdentify(JsonDocument& cmd, JsonDocument& reply) {
   if (!cmd["pos"].is<int>()) return fail(reply, "bad_arg");
@@ -168,6 +207,8 @@ bool handle(JsonDocument& cmd, JsonDocument& reply, bool isHub) {
   if (!strcmp(c, "bri"))         return cmdBri(cmd, reply);
   if (!strcmp(c, "fx"))          return cmdFx(cmd, reply);
   if (!strcmp(c, "boards"))      return cmdBoards(cmd, reply);
+  if (!strcmp(c, "wspeed"))      return cmdWspeed(cmd, reply);
+  if (!strcmp(c, "mode"))        return cmdMode(cmd, reply);
   if (!strcmp(c, "identify"))    return cmdIdentify(cmd, reply);
   if (!strcmp(c, "reset_order")) { hub::onResetOrd(); return true; }
   if (!strcmp(c, "forget"))      return cmdForget(cmd, reply);

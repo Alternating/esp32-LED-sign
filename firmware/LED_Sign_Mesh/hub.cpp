@@ -4,6 +4,7 @@
 #include "storage.h"
 #include "display.h"
 #include "buttons.h"
+#include "sequencer.h"
 #include <WiFi.h>
 #include <string.h>
 
@@ -15,8 +16,17 @@
 // identify flash are timers serviced in tick(), never delays.
 //
 // Sign state: `live` is owned by core 1 (tick/render/sendShow). Commands (any core) write
-// `pending` under signMux and raise pendingFlag; tick() swaps it in, lays the text out,
-// bumps showSeq, bursts, and arms the 2 s auto-save. NVS writes for the sign happen in tick().
+// `pending` under signMux and raise pendingFlag; tick() swaps it in, regroups the text if
+// text/boards/mode changed, bumps the Show seq, bursts, and arms the 2 s auto-save. NVS writes
+// for the sign happen in tick().
+//
+// Word sequencer (step 2): `seq` holds the groups (core 1 only). Two Show "slots":
+//   disp*  = the group the hub shows and the 500 ms heartbeat carries (applyAtHubMs 0, dispSeq)
+//   next*  = the scheduled group: on each advance, nextSeq = dispSeq + 1, applyAt = now + 300 ms,
+//            3x burst with applyAtHubMs = applyAt; swapped into disp* in render() when due, so hub
+//            and nodes switch at the same hub-clock instant. nextAdvanceAt = applyAt + wordPeriodMs.
+//   Content/style changes (relayout or restyle) bump dispSeq past any nextSeq already on the air
+//   and burst the applied frame (applyAtHubMs 0); a pending advance is re-sent with a newer seq.
 
 namespace hub {
 
@@ -44,13 +54,25 @@ static portMUX_TYPE tMux = portMUX_INITIALIZER_UNLOCKED;
 
 // Sign state and the core-0 -> core-1 handover
 static SignState live;                          // core 1 only
-static char      liveChars[MAX_BOARDS] = {0};   // layout of live.text, core 1 only
 static SignState pending;
 static volatile bool pendingFlag = false;
 static portMUX_TYPE signMux = portMUX_INITIALIZER_UNLOCKED;
 static volatile uint32_t dirtyAt = 0;           // auto-save timer; 1 = save on next tick
 
-static volatile uint16_t showSeq = 1;
+// Word sequencer state (core 1 only, except the volatile snapshots read by buildState)
+static sequencer::Sequencer seq;
+static uint8_t  lastNumBoards = 0;              // effective numBoards the groups were built for
+static char     dispChars[MAX_BOARDS] = {0};    // applied group (hub display + heartbeat)
+static volatile uint8_t  dispIdx = 0;
+static volatile uint16_t dispSeq = 1;
+static char     nextChars[MAX_BOARDS] = {0};    // scheduled group (armed advance)
+static uint8_t  nextIdx = 0;
+static uint16_t nextSeq = 1;
+static uint32_t applyAt = 0;                    // hub millis at which next* becomes disp*
+static bool     nextArmed = false;
+static uint32_t lastApplyAt = 0;                // when the displayed group last changed
+static uint32_t nextAdvanceAt = 0;
+static volatile bool burstApplied = true;       // burst frames include the applied slot (false = advance-only burst)
 static char     renderedChar = 0;
 
 // Timers (tick)
@@ -125,9 +147,63 @@ static void persistTable() {
   storage::saveTable(table, nextPosCached);
 }
 
-static void scheduleBurst() {
+static void scheduleBurst() {              // content/style/join burst: applied frame (+ pending if armed)
+  burstApplied = true;
   burstLeft = 3;
   burstNextAt = millis();
+}
+
+static void scheduleAdvanceBurst() {       // word advance: pending frame only
+  burstLeft = 3;
+  burstNextAt = millis();
+}
+
+// ---------------- sequencer (core 1) ----------------
+static void loadGroup(uint8_t idx, char out[MAX_BOARDS]) { seq.group(idx, out); }
+
+// Regroup live.text for nb boards and restart at group 0 (text / boards / mode / numBoards change).
+static void relayout(uint8_t nb, bool burst) {
+  uint32_t now = millis();
+  lastNumBoards = nb;
+  seq.rebuild(live, nb);
+  seq.reset();
+  loadGroup(0, dispChars);
+  dispIdx = 0;
+  dispSeq = (uint16_t)((nextArmed ? nextSeq : dispSeq) + 1);   // newer than anything already on the air
+  nextArmed = false;
+  lastApplyAt = now;
+  nextAdvanceAt = now + live.wordPeriodMs;
+  if (burst) scheduleBurst();
+  Serial.printf("[HUB] sequencer rebuilt: groups=%u mode=%s boards=%u period=%u%s\n",
+                seq.groupCount(), modeName(live.mode), nb, live.wordPeriodMs, seq.truncated() ? " (truncated)" : "");
+}
+
+// Style-only change (colour/bri/fx/wspeed): keep the group index, re-sequence, burst.
+static void restyle(uint16_t oldPeriod) {
+  if (nextArmed) { dispSeq = (uint16_t)(nextSeq + 1); nextSeq = (uint16_t)(dispSeq + 1); }
+  else           { dispSeq = (uint16_t)(dispSeq + 1); }
+  if (live.wordPeriodMs != oldPeriod && !nextArmed) nextAdvanceAt = lastApplyAt + live.wordPeriodMs;
+  scheduleBurst();
+}
+
+// Swap the scheduled group in when its instant has come (same rule as node::render()).
+static void applyDue(uint32_t now) {
+  if (!nextArmed || (int32_t)(now - applyAt) < 0) return;
+  memcpy(dispChars, nextChars, MAX_BOARDS);
+  dispIdx = nextIdx;
+  dispSeq = nextSeq;
+  nextArmed = false;
+  lastApplyAt = applyAt;
+  nextAdvanceAt = applyAt + live.wordPeriodMs;
+  char c = dispChars[0];
+  if (c >= 32) Serial.printf("[HUB] apply seq=%u word=%u/%u '%c'\n", (unsigned)dispSeq, dispIdx, seq.groupCount(), c);
+  else         Serial.printf("[HUB] apply seq=%u word=%u/%u code %d\n", (unsigned)dispSeq, dispIdx, seq.groupCount(), c);
+}
+
+void nextGroup() {                         // serial 'n' (core 1): advance at the next tick, with the normal lead
+  if (seq.groupCount() <= 1) { Serial.println("[HUB] next: only one group"); return; }
+  if (nextArmed) { Serial.println("[HUB] next: advance already scheduled"); return; }
+  nextAdvanceAt = millis();
 }
 
 // ---------------- sign state handover ----------------
@@ -149,25 +225,28 @@ SignState sign() {
 void saveNow() { dirtyAt = 1; }
 
 // Build and queue one Show frame. Always the full 40 B. Core 1 only.
-static void sendShow(bool periodic) {
+// scheduled = the armed next group (applyAtHubMs = applyAt, nextSeq); else the applied group (0, dispSeq).
+static void sendShow(bool periodic, bool scheduled) {
   Show s;
   s.h = makeHdr(SHOW, MY_POS, POS_ALL, periodic ? FLAG_PERIODIC : 0);
   s.hubMillis = millis();
-  s.applyAtHubMs = 0;
-  s.showSeq = showSeq;
+  s.applyAtHubMs = scheduled ? applyAt : 0;
+  s.showSeq = scheduled ? nextSeq : dispSeq;
   s.r = live.r; s.g = live.g; s.b = live.b;
   s.brightness = signBriEff(live);
   s.effect = live.effect;
   s.effectPeriodMs = live.effectPeriodMs;
-  s.wordPeriodMs = 2000;
-  s.numBoards = live.boards ? live.boards : highestOwned();
-  s.wordIdx = 0; s.wordCount = 1;
-  memcpy(s.chars, liveChars, MAX_BOARDS);
+  s.wordPeriodMs = live.wordPeriodMs;
+  s.numBoards = lastNumBoards;
+  s.wordIdx = scheduled ? nextIdx : dispIdx;
+  s.wordCount = seq.groupCount();
+  memcpy(s.chars, scheduled ? nextChars : dispChars, MAX_BOARDS);
   radio::send(radio::BCAST, &s, sizeof(s), false);
   lastPeriodicAt = millis();
   if (!periodic)
-    Serial.printf("[SHOW] seq=%u color=%02X%02X%02X bri=%u fx=%u\n",
-                  (unsigned)s.showSeq, s.r, s.g, s.b, s.brightness, s.effect);
+    Serial.printf("[SHOW] seq=%u color=%02X%02X%02X bri=%u fx=%u group=%u/%u applyAt=%+ld\n",
+                  (unsigned)s.showSeq, s.r, s.g, s.b, s.brightness, s.effect, s.wordIdx, s.wordCount,
+                  scheduled ? (long)(int32_t)(applyAt - s.hubMillis) : 0L);
 }
 
 static void sendAssign(const uint8_t* mac, uint8_t pos) {
@@ -363,9 +442,13 @@ void buildState(JsonObject root) {
   memcpy(inf, info, sizeof(inf));
   portEXIT_CRITICAL(&tMux);
   SignState s = sign();
-  char chars[MAX_BOARDS];
-  signLayout(s, chars);
   uint32_t now = millis();
+  uint8_t highest = MY_POS; for (auto& e : tbl) if (e.pos > highest) highest = e.pos;
+  uint8_t nb = s.boards ? s.boards : highest;
+  // Groups are recomputed from the (pending-or-live) state with a local Sequencer so the reply
+  // predicts the layout the next tick applies; the hub's real index is dispIdx.
+  sequencer::Sequencer sq;
+  sq.rebuild(s, nb);
 
   JsonObject cfg = root["cfg"].to<JsonObject>();
   cfg["text"] = s.text;
@@ -376,16 +459,25 @@ void buildState(JsonObject root) {
   cfg["briEff"] = signBriEff(s);
   cfg["fx"] = fxName(s.effect);
   cfg["speed"] = s.effectPeriodMs;
-  uint8_t highest = MY_POS; for (auto& e : tbl) if (e.pos > highest) highest = e.pos;
-  cfg["boards"] = s.boards ? s.boards : highest;
+  cfg["boards"] = nb;
   cfg["boardsAuto"] = (s.boards == 0);
+  cfg["wspeed"] = s.wordPeriodMs;
+  cfg["mode"] = modeName(s.mode);
+  {
+    JsonArray groups = cfg["groups"].to<JsonArray>();
+    char gs[sequencer::GROUP_STR_MAX];
+    for (uint8_t i = 0; i < sq.groupCount(); i++) { sq.groupString(i, gs, sizeof(gs)); groups.add(gs); }
+    cfg["groupCount"] = sq.groupCount();
+    cfg["truncated"] = sq.truncated();
+  }
   cfg["name"] = radio::apSsid();
   cfg["fw"] = FW_VERSION;
 
   JsonObject state = root["state"].to<JsonObject>();
   state["hubPos"] = MY_POS;
-  state["numBoards"] = s.boards ? s.boards : highest;
+  state["numBoards"] = nb;
   state["nextPos"] = nextPosCached;
+  state["wordIdx"] = dispIdx;
   state["clients"] = WiFi.softAPgetStationNum();
   state["heap"] = ESP.getFreeHeap();
   state["uptime"] = now / 1000;
@@ -401,7 +493,7 @@ void buildState(JsonObject root) {
     JsonObject b = boards.add<JsonObject>();
     b["pos"] = MY_POS; b["id"] = id; b["mac"] = macs; b["self"] = true;
     b["online"] = true; b["age"] = 0; b["mv"] = 0; b["rssi"] = 0;
-    putChar(b, chars[0]);
+    putChar(b, dispChars[0]);
   }
   for (uint8_t pos = 2; pos <= MAX_BOARDS; pos++) {           // sorted by pos
     int idx = -1;
@@ -428,11 +520,16 @@ void begin() {
   int n = 0; for (auto& e : table) if (e.pos) n++;
   Serial.printf("[HUB] table loaded: %d boards, nextPos=%d\n", n, nextPosCached);
 
-  storage::loadSign(live);              // restored before the first Show
-  signLayout(live, liveChars);
+  bool migrated = storage::loadSign(live);   // restored before the first Show
   pending = live;
-  Serial.printf("[HUB] sign loaded: text=\"%s\" color=%02X%02X%02X bri=%u fx=%s speed=%u boards=%u\n",
-                live.text, live.r, live.g, live.b, live.bri, fxName(live.effect), live.effectPeriodMs, live.boards);
+  Serial.printf("[HUB] sign loaded: text=\"%s\" color=%02X%02X%02X bri=%u fx=%s speed=%u boards=%u wspeed=%u mode=%s\n",
+                live.text, live.r, live.g, live.b, live.bri, fxName(live.effect), live.effectPeriodMs, live.boards,
+                live.wordPeriodMs, modeName(live.mode));
+  if (migrated) {
+    Serial.println("[HUB] sign blob migrated v1->v2 (wordPeriodMs=2000, mode=words), rewriting");
+    dirtyAt = 1;                                 // saved as v2 on the first tick
+  }
+  relayout(live.boards ? live.boards : highestOwned(), false);   // first heartbeat carries group 0
 
   buttons::onLong(K3_PIN, onResetOrd, LONG_PRESS_HUB_MS);
   buttons::onLong(K2_PIN, onIdentifyAll, LONG_PRESS_HUB_MS);
@@ -445,25 +542,49 @@ void begin() {
 void tick() {
   uint32_t now = millis();
 
-  // Apply a queued sign change (core-0 commands -> core-1 Show)
+  // Apply a queued sign change (core-0 commands -> core-1 Show). Text/boards/mode -> regroup
+  // from group 0; anything else (colour, bri, fx, wspeed) keeps the group index.
+  bool regroup = false, changed = false;
+  uint16_t oldPeriod = live.wordPeriodMs;
   if (pendingFlag) {
     portENTER_CRITICAL(&signMux);
+    regroup = strcmp(live.text, pending.text) != 0 || live.boards != pending.boards || live.mode != pending.mode;
     live = pending;
     pendingFlag = false;
     portEXIT_CRITICAL(&signMux);
-    signLayout(live, liveChars);
-    showSeq = showSeq + 1;
-    scheduleBurst();
+    changed = true;
     dirtyAt = now ? now : 1;
   }
+  // Effective numBoards (pinned, or highest owned position): a node joining or being forgotten
+  // changes it from core 0 / any core; detected here so the regroup always runs on core 1.
+  uint8_t nb;
+  portENTER_CRITICAL(&tMux);
+  nb = live.boards ? live.boards : highestOwned();
+  portEXIT_CRITICAL(&tMux);
+  if (regroup || nb != lastNumBoards) relayout(nb, true);
+  else if (changed) restyle(oldPeriod);
   if (dirtyAt && (dirtyAt == 1 || now - dirtyAt >= 2000)) {
     dirtyAt = 0;
     storage::saveSign(live);
     Serial.println("[HUB] sign saved");
   }
 
-  if (st == HubState::SHOW_POSITION && now - stateEnteredAt >= SHOW_POSITION_MIN)
+  if (st == HubState::SHOW_POSITION && now - stateEnteredAt >= SHOW_POSITION_MIN) {
     setState(HubState::RUNNING);
+    lastApplyAt = now;                      // the first word period starts when the sign starts showing text
+    nextAdvanceAt = now + live.wordPeriodMs;
+  }
+
+  // Word advance: schedule the next group WORD_LEAD_MS ahead so every board switches together
+  if (st == HubState::RUNNING && seq.groupCount() > 1 && !nextArmed && (int32_t)(now - nextAdvanceAt) >= 0) {
+    nextIdx = seq.advance();
+    loadGroup(nextIdx, nextChars);
+    nextSeq = (uint16_t)(dispSeq + 1);
+    applyAt = now + WORD_LEAD_MS;
+    nextArmed = true;
+    scheduleAdvanceBurst();
+    Serial.printf("[HUB] advance group %u/%u seq=%u applyAt=+%u\n", nextIdx, seq.groupCount(), (unsigned)nextSeq, (unsigned)WORD_LEAD_MS);
+  }
 
   // RESETORD burst
   if (resetLeft && (int32_t)(now - resetNextAt) >= 0) {
@@ -473,13 +594,17 @@ void tick() {
     resetNextAt = now + RESET_ORD_GAP;
   }
 
-  // Show: burst on change (0/60/250 ms) and periodic heartbeat every 500 ms
+  // Show: burst on change (0/60/250 ms) and periodic heartbeat every 500 ms. The heartbeat
+  // always carries the applied group (applyAtHubMs 0); a burst carries the applied frame and/or
+  // the scheduled one.
   if (burstLeft && (int32_t)(now - burstNextAt) >= 0) {
-    sendShow(false);
+    if (burstApplied || !nextArmed) sendShow(false, false);
+    if (nextArmed) sendShow(false, true);
     burstLeft = burstLeft - 1;
     burstNextAt = now + (burstLeft == 2 ? SHOW_BURST_GAP1 : SHOW_BURST_GAP2);
+    if (burstLeft == 0) burstApplied = false;
   } else if (now - lastPeriodicAt >= SHOW_HEARTBEAT) {
-    sendShow(true);
+    sendShow(true, false);
   }
 
   // Status LED: blink in SHOW_POSITION, solid in RUNNING
@@ -488,9 +613,10 @@ void tick() {
 }
 
 void render() {
+  applyDue(millis());                     // scheduled group becomes the displayed one, like node::render()
   if (display::identifyActive()) { display::identifyRender(); return; }
   if (st == HubState::SHOW_POSITION) { display::renderDigit(MY_POS, CRGB::Green); return; }
-  char c = liveChars[0];
+  char c = dispChars[0];
   if (c != renderedChar) {
     renderedChar = c;
     if (c >= 32) Serial.printf("[HUB] render '%c'\n", c); else Serial.printf("[HUB] render code %d\n", c);
@@ -503,12 +629,26 @@ void render() {
 void printStatus() {
   char ms[18];
   Serial.printf("role=HUB pos=%d state=%s nextPos=%d numBoards=%d showSeq=%u\n",
-                MY_POS, stateName(st), nextPosCached, highestOwned(), (unsigned)showSeq);
+                MY_POS, stateName(st), nextPosCached, lastNumBoards, (unsigned)dispSeq);
   SignState s = sign();
   Serial.printf("text=\"%s\" color=%02X%02X%02X bri=%u/%u fx=%s speed=%u boards=%u mirror=%d%s\n",
                 s.text, s.r, s.g, s.b, s.bri, signBriEff(s), fxName(s.effect), s.effectPeriodMs, s.boards,
                 display::mirror, dirtyAt ? " (unsaved)" : "");
   uint32_t now = millis();
+  if (seq.groupCount() > 1)
+    Serial.printf("groups=%u idx=%u period=%u nextIn=%ld ms mode=%s%s\n", seq.groupCount(), dispIdx, live.wordPeriodMs,
+                  nextArmed ? (long)(int32_t)(applyAt - now) : (long)(int32_t)(nextAdvanceAt - now), modeName(live.mode),
+                  nextArmed ? " (advance armed)" : "");
+  else
+    Serial.printf("groups=%u idx=0 period=%u nextIn=- mode=%s (no timer)\n", seq.groupCount(), live.wordPeriodMs, modeName(live.mode));
+  {
+    char gs[sequencer::GROUP_STR_MAX];
+    for (uint8_t i = 0; i < seq.groupCount(); i++) {
+      seq.groupString(i, gs, sizeof(gs));
+      Serial.printf("  [%u]%s \"%s\"\n", i, i == dispIdx ? "*" : " ", gs);
+    }
+    if (seq.truncated()) Serial.println("  (truncated at 20 groups)");
+  }
   int n = 0;
   for (auto& e : table) {
     if (!e.pos) continue;
