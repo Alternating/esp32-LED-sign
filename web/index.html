@@ -463,7 +463,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
     sendCmd({ cmd: 'boards', n: n }, function (d) { if (d && d.ok) pollState(); });
   };
   $('identifyAll').onclick = function () {
-    sendCmd({ cmd: 'identify', pos: 255, ms: 3000 }, function (d) { if (d && d.ok) toast('Identifying all boards', true); });
+    sendCmd({ cmd: 'identify', pos: 255, ms: 10000 }, function (d) { if (d && d.ok) toast('Identifying all boards', true); });
   };
   $('resetOrder').onclick = function () {
     if (!confirm('Reset board order? Every node forgets its position and must be power-cycled or claimed again.')) return;
@@ -493,7 +493,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       card.appendChild(el('div', 'chr', 'char: ' + (b['char'] ? b['char'] : '(blank)')));
       var act = el('div', 'actions');
       var idb = el('button', 'btn secondary', 'Identify');
-      idb.onclick = function () { sendCmd({ cmd: 'identify', pos: b.pos, ms: 3000 }, function (d) { if (d && d.ok) toast('Identifying board ' + b.pos, true); }); };
+      idb.onclick = function () { sendCmd({ cmd: 'identify', pos: b.pos, ms: 10000 }, function (d) { if (d && d.ok) toast('Identifying board ' + b.pos, true); }); };
       act.appendChild(idb);
       var mb = el('button', 'btn secondary', b.mirror ? 'Unflip' : 'Flip');
       mb.title = 'Mirror this board horizontally (data line enters from the other side)';

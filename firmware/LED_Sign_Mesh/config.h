@@ -38,7 +38,7 @@ constexpr uint16_t WORD_LEAD_MS = 300;   // word-advance Show: applyAtHubMs = hu
 #define RESET_ORD_GAP       200
 #define ACK_RETRY           5
 #define ACK_RETRY_MS        200
-#define IDENTIFY_MS         3000
+#define IDENTIFY_MS         10000      // identify shows the position digit for 10 s (owner preference)
 #define OFFLINE_AFTER_MS    10000
 #define LONG_PRESS_NODE_MS  2000
 #define LONG_PRESS_HUB_MS   3000
