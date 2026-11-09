@@ -93,3 +93,9 @@ Power both boards (hub shows `H`, node `I`, green). Join Wi-Fi **LEDSIGN-HUB / s
 ## Final state
 
 Both boards left running: hub `text="HI" color=00FF00 bri=100/100 fx=static speed=500 boards=0`, node `pos=2 state=RUNNING … show: color=00FF00 bri=100 fx=0`, `/state` → `HI 00FF00 100 [(1,True,'H'),(2,True,'I')]`, `[HUB] sign saved` confirmed. Raw logs on the box under `~/v3/` (`hub_boot1.log`, `node_boot1.log`, `hub_b4.log`, `node_b4.log`, `b5_poll.log`, `node_b5.log`, `hub_b6.log`, `node_b6.log`, `hub_b7.log`, `node_b7.log`, `node_b9.log`, `hub_s_before_b9.log`, `hub_s_after_b9.log`, `b9_load_result.txt`, `b10_poll.log`, `hub_b10.log`, `node_b10.log`).
+
+
+## D1 fix verification (commit 49e4927, 2026-11-08)
+Unicast IDENTIFY and FORGET now use the ACK/retry path (`needsAck=true`); node ACKs both (and ACKs FORGET even when already UNASSIGNED so retries terminate). Re-test after reflashing both boards at 115200:
+- `tools/test_identify.py /dev/ttyUSB0 /dev/ttyUSB1 15 2` → **15 / 15 received**, hub `txFail=0` (was 9/11 with 1 txFail).
+- `forget pos 2` → node `FORGET from hub … UNASSIGNED`; node `c` → DISCOVER → SHOW_POSITION pos=2 → RUNNING. **D1 closed.**
