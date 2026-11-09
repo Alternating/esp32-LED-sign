@@ -182,7 +182,7 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
         const Identify* id = (const Identify*)buf;
         if (h->flags & FLAG_NEEDS_ACK) { learnHub(srcMac); sendAck(IDENTIFY, h->seq); }   // unicast identify (D1)
         if (display::identifyActive() && (h->flags & FLAG_NEEDS_ACK)) break;             // retry of one we already started
-        display::identifyStart(id->ms);
+        display::identifyStart(id->ms, myPos);
         Serial.printf("[NODE] IDENTIFY %u ms\n", id->ms);
       }
       break;

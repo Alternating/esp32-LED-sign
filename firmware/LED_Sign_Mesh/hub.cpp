@@ -299,7 +299,7 @@ static void identifyAll(uint16_t ms) {
   id.h = makeHdr(IDENTIFY, MY_POS, POS_ALL);
   id.ms = ms;
   radio::send(radio::BCAST, &id, sizeof(id), false);
-  display::identifyStart(ms);           // hub flashes too
+  display::identifyStart(ms, MY_POS);   // hub flashes its digit too
   Serial.printf("[HUB] IDENTIFY ALL %u ms\n", ms);
 }
 
@@ -308,7 +308,7 @@ void onIdentifyAll() { identifyAll(IDENTIFY_MS); }
 bool identifyPos(uint8_t pos, uint16_t ms) {
   ms = constrain(ms, (uint16_t)200, (uint16_t)10000);
   if (pos == POS_ALL) { identifyAll(ms); return true; }
-  if (pos == MY_POS) { display::identifyStart(ms); Serial.printf("[HUB] IDENTIFY self %u ms\n", ms); return true; }
+  if (pos == MY_POS) { display::identifyStart(ms, MY_POS); Serial.printf("[HUB] IDENTIFY self %u ms\n", ms); return true; }
   uint8_t mac[6]; bool found = false;
   portENTER_CRITICAL(&tMux);
   int idx = findPos(pos);

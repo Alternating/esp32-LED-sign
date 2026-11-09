@@ -8,6 +8,7 @@ Tracking file per project rules. Newest log entries at top.
 - **Blocker cleared:** `character_patterns.h` extended to 68 glyphs; ready for Phase 0.
 
 ## Log
+- 2026-11-08 — Owner phone test: two phones connect to `LEDSIGN-HUB` fine (D2 max_conn OK). Owner defect: identify flashed solid white; plan §3.3 says flash the **position digit**. Fixed (`display::identifyStart(ms,pos)`, white digit at 2 Hz on hub and nodes). Drift: the step-3 brief said "identify flash" without restating the digit requirement — briefs must quote the plan's rendering rules verbatim.
 - 2026-11-08 — **Phase 1 step 3 VERIFIED (B1–B10 PASS, step-1 regression PASS).** Hub serves captive portal + web UI from PROGMEM (6.9 kB gz), JSON `/cmd` + `/state`, SignState persisted with 2 s auto-save, node-side effects (blink/fade/cycle phase-locked to hub clock), per-board telemetry. POST→node apply ≈ 76 ms; 60 s load + 5 min soak heap-flat. Defect D1 (unicast identify/forget lost 2/11) fixed in `49e4927` — 15/15 after fix. Reports: `docs/reviews/STEP3_REVIEW.md`, `STEP3_VERIFICATION.md`, UI screenshots `step3_ui_*.png`. Build 1.07 MB / 55 kB RAM.
 - 2026-11-08 — Step 3 pipeline: Qwen draft 20.7k tok / 8 min (used an uninstalled async web lib, re-raised the AP on ch 1 — caught in review) → review 47 findings (19 blocking) → refactor (clean build, Playwright page test) → verification. Box facts: `wlp3s0` is the usable 2.4 GHz WLAN (`wlp4s0` is 60 GHz), no NetworkManager (wpa_supplicant+dhcpcd), the real sign's USB adapter needs `UploadSpeed=115200`.
 - 2026-11-08 — **Phase 1 step 1 VERIFIED on hardware (A1–A7 all PASS).** `firmware/LED_Sign_Mesh/`: protocol, ESP-NOW radio layer (ring buffer → pump → handler, seq stamping, ACK retries, per-MAC dedupe), NVS storage, display, buttons, hub/node state machines with sticky MAC→position numbering, serial console. Evidence in `docs/reviews/STEP1_VERIFICATION.md`: node DISCOVER→pos 2 in 40 ms, SHOW_POSITION 3.0 s, LOST_HUB at 5.0 s / recovery 1.6 s, reset-order + claim cycle correct, 10-min soak Δheap 0 B both boards, 0 rx drops. Build 983 kB / 52 kB RAM.
@@ -34,7 +35,7 @@ Tracking file per project rules. Newest log entries at top.
 6. Battery sense: 100k/47k divider → GPIO 34, per-board calibration via app.
 
 ## Open Questions (for Tyler)
-0. Phone checklist (in STEP3_VERIFICATION.md): does the captive portal auto-pop on your iPhone/Android when joining `LEDSIGN-HUB`? Do all four tabs work? Two phones at once (max_conn=2)?
+0. ~~Two phones~~ **OK (answered).** Still open: does the captive portal auto-pop, and any UI feedback from the four tabs?
 1. Hub = display board at position 1, or a dedicated controller box?
 2. ~~Dev board~~ **LOLIN32** (answered)
 3. Do all boards have the 4-button board, and are some wired mirrored/backwards?

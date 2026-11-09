@@ -32,8 +32,8 @@ CRGB    styled(uint8_t r, uint8_t g, uint8_t b, uint8_t bri, uint8_t effect, uin
 uint8_t pulseLevel();                                // 0..255 slow breathing scale for DISCOVER/UNASSIGNED
 CRGB    scaled(CRGB c, uint8_t scale);               // c.nscale8(scale), returns a copy
 
-// Non-blocking identify flash (white/black alternating for ms). Render it from tick().
-void identifyStart(uint16_t ms);
+// Non-blocking identify: flashes this board's position digit in white for ms (plan §3.3). Render from tick().
+void identifyStart(uint16_t ms, uint8_t pos);
 bool identifyActive();
 void identifyRender();                               // draws the current flash phase
 

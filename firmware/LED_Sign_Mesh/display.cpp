@@ -10,6 +10,7 @@ bool mirror = false;
 
 static uint32_t lastShowMs = 0;
 static uint32_t identifyUntil = 0;
+static uint8_t  identifyPos   = 0;    // digit shown while identifying (0 = '?')
 
 void begin() {
   FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, LEDS_PER_BOARD);
@@ -93,13 +94,15 @@ uint8_t pulseLevel() { return beatsin8(20, 40, 160); }   // 20 BPM, dim breathin
 
 CRGB scaled(CRGB c, uint8_t scale) { c.nscale8(scale); return c; }
 
-void identifyStart(uint16_t ms) { identifyUntil = millis() + ms; }
+void identifyStart(uint16_t ms, uint8_t pos) { identifyUntil = millis() + ms; identifyPos = pos; }
 
 bool identifyActive() { return identifyUntil != 0 && (int32_t)(identifyUntil - millis()) > 0; }
 
 void identifyRender() {
+  // Plan §3.3: identify = flash this board's POSITION DIGIT (white), 2 Hz, so the user
+  // can read the assigned number off the sign rather than just seeing a white strobe.
   bool on = (millis() / 250) & 1;
-  fill(on ? CRGB::White : CRGB::Black);
+  if (on) renderDigit(identifyPos, CRGB::White); else clear();
 }
 
 void show() {
