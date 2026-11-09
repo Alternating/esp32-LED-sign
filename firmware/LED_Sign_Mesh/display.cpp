@@ -101,8 +101,9 @@ bool identifyActive() { return identifyUntil != 0 && (int32_t)(identifyUntil - m
 void identifyRender() {
   // Plan §3.3: identify = flash this board's POSITION DIGIT (white), 2 Hz, so the user
   // can read the assigned number off the sign rather than just seeing a white strobe.
+  // Owner preference 2026-11-08: purple at 50 % so identify is distinct from any chosen message colour.
   bool on = (millis() / 250) & 1;
-  if (on) renderDigit(identifyPos, CRGB::White); else clear();
+  if (on) renderDigit(identifyPos, scaled(CRGB::Purple, 128)); else clear();
 }
 
 void show() {
