@@ -3,11 +3,13 @@
 Tracking file per project rules. Newest log entries at top.
 
 ## Status
-- **Phase:** 1 — steps 1 and 3 verified on two real signs. **Next: step 2 word sequencer** (`parseMessageIntoWords`, `wspeed`, `applyAtHubMs`). Owner phone checklist for the portal pending.
+- **Phase:** **1 COMPLETE** (steps 1, 3, 2 verified on two real signs). Next: Phase 2 — battery telemetry (ADC divider), order/swap, 10-board soak; or Phase 4 OTA. Open UX items from verification anomalies: `clients` over-count, `boards` reply lacks `groups`.
 - **Active agent:** Orchestrator (Claude session 2026-11-08); research + planning agents on Standby
 - **Blocker cleared:** `character_patterns.h` extended to 68 glyphs; ready for Phase 0.
 
 ## Log
+- 2026-11-08 — **Phase 1 step 2 VERIFIED (C1–C13 PASS after D1 fix).** Word sequencer: legacy `parseMessageIntoWords` ported with chunking (23/23 host unit tests, `tools/seq_test`), synchronized word changes (300 ms lead, hub↔node switch skew 7.7 ms mean), SignState v1→v2 migration preserved owner settings, UI word-speed slider + live group preview (deterministic token glyphs). D1: period measured as period+lead (1312 ms) → fixed in `765c182`: 1000.0 ms σ 8, 500.1 ms σ 6.6. Build 1.08 MB. Reports: `STEP2_REVIEW.md`, `STEP2_VERIFICATION.md`.
+- 2026-11-08 — Step 2 pipeline: Qwen draft 24.9k tok / 10 min (JS packer correct, C++ packer hung on brief cases, no scheduled apply) → review 32 findings → refactor (+ unit tests, hub-restart detection) → verification found one timing defect → fixed same day. **Phase 1 complete.**
 - 2026-11-08 — Owner confirms captive portal auto-pops on phone join. **Step 3 fully closed.**
 - 2026-11-08 — Owner phone test: two phones connect to `LEDSIGN-HUB` fine (D2 max_conn OK). Owner defect: identify flashed solid white; plan §3.3 says flash the **position digit**. Fixed (`display::identifyStart(ms,pos)`, white digit at 2 Hz on hub and nodes). Drift: the step-3 brief said "identify flash" without restating the digit requirement — briefs must quote the plan's rendering rules verbatim.
 - 2026-11-08 — **Phase 1 step 3 VERIFIED (B1–B10 PASS, step-1 regression PASS).** Hub serves captive portal + web UI from PROGMEM (6.9 kB gz), JSON `/cmd` + `/state`, SignState persisted with 2 s auto-save, node-side effects (blink/fade/cycle phase-locked to hub clock), per-board telemetry. POST→node apply ≈ 76 ms; 60 s load + 5 min soak heap-flat. Defect D1 (unicast identify/forget lost 2/11) fixed in `49e4927` — 15/15 after fix. Reports: `docs/reviews/STEP3_REVIEW.md`, `STEP3_VERIFICATION.md`, UI screenshots `step3_ui_*.png`. Build 1.07 MB / 55 kB RAM.

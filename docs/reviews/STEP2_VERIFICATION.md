@@ -81,3 +81,10 @@ web clients=1 requests=2
 ## Final state of the bench
 
 Hub `s` at 02:11:07: `text="GO TEAM" color=00FF00 bri=100/100 fx=static speed=500 boards=0`, `groups=3 idx=1 period=2000 … mode=words (advance armed)`; `/state cfg`: `GO TEAM 00FF00 100 static wspeed 2000 mode words groups ['GO','TE','AM']` (saved to NVS). Box WLAN detached, routes/DNS as found. Both boards running fw `285836b`.
+
+
+## D1 fix verification (commit 765c182, 2026-11-08)
+`nextSwitchAt` is now the switch instant; the burst is sent `WORD_LEAD_MS` before it and `applyAt = nextSwitchAt` (anchored, no per-period drift). Hub reflashed; `tools/measure_period.py`:
+- wspeed 1000 → **35 applies / 35 s, spacing mean 1000.0 ms, σ 8.0 (992–1008)**, lead 282–297 ms, idx cycle unbroken.
+- wspeed 500 → 40 applies / 20 s, **mean 500.1 ms**, σ 6.6.
+C4 and C7 now PASS. **D1 closed.** Boards left on "GO TEAM", wspeed 2000.
