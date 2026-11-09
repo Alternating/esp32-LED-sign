@@ -37,7 +37,9 @@ One source tree builds one program; the **role is pre-seeded in the settings par
 
 Build box: `tools/flash_board.sh /dev/ttyUSBx hub|node|update` (flashes at 115200 and prints the boot banner, which states the role and MAC).
 Windows: `esptool --chip esp32 --port COMx --baud 115200 write-flash -z <offset> <file>`.
-Never flash the HUB image onto more than one powered board. Re-numbering after a NODE install: the hub remembers the board's MAC, so it gets its old position back unless you reset the order.
+Never flash the HUB image onto more than one powered board. **Keep the board plugged in until the flash reports "Hash of data verified"** — an interrupted write erases the app and the board boot-loops until reflashed (settings survive).
+
+**Mirrored board** (letters appear backwards because the LED data line enters from the other side): Boards tab → that board's card → **Flip**. Or hold **K1 while applying power** (shows "E"), or serial `m`. The flag is saved on that board. Re-numbering after a NODE install: the hub remembers the board's MAC, so it gets its old position back unless you reset the order.
 
 ## Next step
 Answer the open questions in `Progress.md`, then Phase 0 bench test (two boards, ESP-NOW ping, flicker check). `character_patterns.h` must be added to the repo first.
