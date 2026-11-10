@@ -1,3 +1,5 @@
+> **Legacy guide** from the original single-ESP32, 5–8-board project. For building boards for *this* sign (one LOLIN32 + battery per board, ESP-NOW) use **[`HARDWARE_ASSEMBLY.md`](HARDWARE_ASSEMBLY.md)**. The GPIO pin table, multi-board/daisy-chain wiring, software setup and web-interface sections below do not apply; parts, buying tips and battery/XL4015 material still do.
+
 # Modular LED Sign System - Multi-Board Display Controller
 
 ## 🎯 Project Overview

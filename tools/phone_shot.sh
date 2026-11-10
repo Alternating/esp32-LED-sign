@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Screenshot the ADB-connected phone, downscale, and push it to the `phone-shots` branch (force, single commit)
 # so the cloud session can fetch and view it. Usage: tools/phone_shot.sh [name]   (default: shot)
+# The branch is a scratch transfer channel: it only ever holds the latest shot (older shots are removed).
+# Shots meant for the docs are copied into docs/images/ on main. Delete the branch when done:
+#   git push origin --delete phone-shots; git worktree remove --force ~/phone-shots-wt; git branch -D phone-shots
 # Phone must be awake/unlocked (screencap returns 0 bytes on a locked/off screen).
 set -euo pipefail
 NAME=${1:-shot}
@@ -13,6 +16,7 @@ if [ ! -d "$WT/.git" ] && [ ! -f "$WT/.git" ]; then
 fi
 adb exec-out screencap -p > /tmp/$NAME.png
 [ -s /tmp/$NAME.png ] || { echo "!! empty screenshot — phone locked or screen off"; exit 1; }
+rm -f "$WT"/*.jpg
 python3 - /tmp/$NAME.png "$WT/$NAME.jpg" <<'PY'
 import sys
 from PIL import Image

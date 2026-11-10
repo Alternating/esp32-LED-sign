@@ -24,6 +24,8 @@ Battery-powered 20×20 LED boards, each with its own ESP32, that work together a
 
 **→ Full feature tour with screenshots: [`docs/FEATURES.md`](docs/FEATURES.md)**
 
+**→ Build a board (parts with links, matrix, wiring, 3D-printed battery hanger, photos): [`docs/HARDWARE_ASSEMBLY.md`](docs/HARDWARE_ASSEMBLY.md)**
+
 Engineering docs: [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) (architecture, protocol) · [`Progress.md`](Progress.md) (log, decisions) · `docs/reviews/` (verification reports).
 
 ## Layout
@@ -32,16 +34,18 @@ README.md                 this file
 Progress.md               status log, decisions, open questions
 docs/
   FEATURES.md             feature tour with screenshots
-  images/                 phone UI screenshots
+  images/                 photos and phone UI screenshots (hardware/ = build photos)
+  HARDWARE_ASSEMBLY.md    build one board: parts, matrix, wiring, battery hanger
   PROJECT_PLAN.md         the plan (review this first)
   research/               ESP-NOW feasibility + mobile app research reports (with sources)
-  HARDWARE_README_v3.md   single-board hardware guide, parts list, battery/power wiring
+  HARDWARE_README_v3.md   original single-ESP32 project guide (legacy; parts/battery info still useful)
   LIFEPO4_PERFECT_SOLUTION.md, XL4015_SETUP_GUIDE.md, CAPACITOR_GUIDE.md, BATTERY_HOLDER_PRINT_GUIDE.md
 firmware/
   legacy/                 current single-board v4 (4-button) firmware and the old WiFi web-UI firmware
   LED_Sign_Mesh/          mesh firmware (hub + node, one binary; Phase 4 OTA)
 hardware/
-  battery_hanger_-_led_sign_v4.stl
+  battery_hanger_-_led_sign_v4.stl   battery hanger (print this)
+  battery_hanger_-_led_sign_v3.f3d   Fusion 360 source
 ```
 
 ## Which board is the hub?
@@ -61,11 +65,17 @@ Build: `esp32:esp32:lolin32:PartitionScheme=min_spiffs` (two 1.9 MB app slots fo
 
 **Install (once per board, and once more for every board when moving to the Phase 4 partition layout):** `python tools/flasher.py` (guided) or `tools/flash_board.sh /dev/ttyUSBx hub|node` on the build box. Windows: `esptool --chip esp32 --port COMx --baud 115200 write-flash -z 0x0 <file>`. Never flash the HUB image onto more than one powered board. **Keep the board plugged in until the flash reports "Hash of data verified".**
 
-**Update (every release after that):** join the sign's Wi-Fi → Settings → **Firmware** → choose `release/<commit>/LED_Sign_ota.bin` → **Upload to hub**. The hub reboots into the new image (~20 s). Then press **Update all boards**: the hub updates every node whose build differs from its own, one at a time (~30 s each; the board shows its number in blue with a green progress bar). From a computer on the sign's Wi-Fi: `curl -F "file=@LED_Sign_ota.bin" http://192.168.4.1/ota`, then `curl -d '{"cmd":"ota_nodes"}' http://192.168.4.1/cmd`. Serial on the hub: `o` = update all, `O5` = update board 5, `s` shows build / slot / queue.
+**Update (every release after that):** join the sign's Wi-Fi → Settings → **Firmware** → choose `release/<commit>/LED_Sign_ota.bin` → **Upload to hub**. The hub reboots into the new image (~20 s). Then press **Update all boards**: the hub updates every node whose build differs from its own, one at a time (~20 s each; the board shows its number in blue with a green progress bar). From a computer on the sign's Wi-Fi: `curl -F "file=@LED_Sign_ota.bin" http://192.168.4.1/ota`, then `curl -d '{"cmd":"ota_nodes"}' http://192.168.4.1/cmd`. Serial on the hub: `o` = update all, `O5` = update board 5, `s` shows build / slot / queue.
 
 **Rollback:** a freshly updated board must run healthy for 30 s (hub: running with its Wi-Fi up; node: on the radio channel and joined/discovering) before the new image is confirmed. If it resets before that — crash, watchdog, or a power cycle — the bootloader starts the previous image on that **one** reset. A failed node download never touches the running image. There is no wired "app-only update" image any more (with two app slots an app-only write at `0x10000` can hit the wrong slot).
 
 **Mirrored board** (letters appear backwards because the LED data line enters from the other side): Boards tab → that board's card → **Flip**. Or hold **K1 while applying power** (shows "E"), or serial `m`. The flag is saved on that board. Re-numbering after a NODE install: the hub remembers the board's MAC, so it gets its old position back unless you reset the order.
 
-## Next step
-Answer the open questions in `Progress.md`, then Phase 0 bench test (two boards, ESP-NOW ping, flicker check). `character_patterns.h` must be added to the repo first.
+## Status and roadmap
+**Working today (10 real boards):** phone control over the hub's Wi-Fi, ESP-NOW to every board, plug-and-play numbering, word sequencing, symbols, effects, Rainbow Bands / Rainbow Flow, Identify / Flip, and over-the-air updates with rollback. Build log and decisions: [`Progress.md`](Progress.md).
+
+**Possible next steps** (none started):
+- **More than 10 boards** — 11–20 is a small change (see "How many boards?" in [`docs/FEATURES.md`](docs/FEATURES.md)); beyond 20 needs a design change.
+- **Reorder / swap boards from the phone** instead of Reset order + re-powering.
+- Minor: OTA polish items D2/D3, the phone `clients` count over-reporting.
+- Optional: Bluetooth (BLE) control as an alternative to joining the sign's Wi-Fi (Phase 3 in the plan).

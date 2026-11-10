@@ -30,6 +30,12 @@ Join the sign's Wi-Fi (`LEDSIGN-HUB`) and the control page **pops up automatical
 
 <br clear="right">
 
+<details><summary>All 68 glyphs (20×20)</summary>
+
+![Font sheet](fonts/preview_sheet.png)
+
+</details>
+
 ## 3. Look — colours, effects, Rainbow Bands and Rainbow Flow
 
 <img src="images/ui_look_rainbow_flow.jpg" width="300" align="right" alt="Look tab with Rainbow Flow">
@@ -58,15 +64,15 @@ Join the sign's Wi-Fi (`LEDSIGN-HUB`) and the control page **pops up automatical
 
 ## 5. Firmware updates over the air
 
-<img src="images/ui_firmware.jpg" width="300" align="right" alt="Firmware card">
-<img src="images/ui_update_in_progress.jpg" width="300" align="right" alt="Update in progress">
-
 - **Settings → Firmware → choose `LED_Sign_ota.bin` → Upload to hub** (~13 s from a phone).
 - **Update all boards**: the hub updates every node **one at a time** from its own copy, with a live progress table (queued → updating % → rebooting → done). ~20 s per board — **all 10 boards in about 3 minutes**.
 - **Safe by design**: two firmware slots per board; a new image must run healthy for 30 s or the board **rolls back** automatically; a board that loses power mid-update keeps its old firmware and rejoins.
 - Firmware badges turn **red** for any board that differs from the hub.
 
-<br clear="right">
+<p>
+<img src="images/ui_firmware.jpg" width="300" alt="Firmware card — all boards up to date">
+<img src="images/ui_update_in_progress.jpg" width="300" alt="Update all boards in progress">
+</p>
 
 ## 6. Settings that survive everything
 
@@ -85,7 +91,7 @@ Message, colour, effects, word speed, board count, Wi-Fi name, roles, positions 
 | 10 000 µF capacitor | inrush / colour-change stability |
 | Optional 4-button board | standalone control, role/mirror gestures |
 
-See `docs/HARDWARE_README_v3.md` for wiring, parts list and the 3D-printed battery mount.
+**Build guide with parts links, wiring and photos: [`HARDWARE_ASSEMBLY.md`](HARDWARE_ASSEMBLY.md)** (3D-printed battery hanger in `hardware/`).
 
 ## How it works
 
