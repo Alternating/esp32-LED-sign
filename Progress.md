@@ -3,11 +3,13 @@
 Tracking file per project rules. Newest log entries at top.
 
 ## Status
-- **Phase:** Phase 1 + Phase 4 complete; **all 10 boards on `3a47849` via OTA**. Open: D4 (slow hub upload over Wi-Fi at 10 boards). Next: Android/ADB test rig, D4 investigation. Backlog: order/swap from phone, D2/D3 minor OTA items, `clients` over-count.
+- **Phase:** Phase 1 + Phase 4 complete; **all 10 boards on `3a47849` via OTA**. D4 closed (box Wi-Fi card, not the sign). Next: phone-driven UI checks via ADB. Backlog: order/swap from phone, D2/D3 minor OTA items, `clients` over-count.
 - **Active agent:** Orchestrator (Claude session 2026-11-08); research + planning agents on Standby
 - **Blocker cleared:** `character_patterns.h` extended to 68 glyphs; ready for Phase 0.
 
 ## Log
+- 2026-11-09 — **Android test rig online:** OnePlus 7 Pro (GM1917, Android 12) on the Qwen box via ADB (udev rule for vendor 22d9; phone joins `LEDSIGN-HUB` with `adb shell cmd wifi connect-network`). Screenshots: `tools/phone_shot.sh <name>` → `phone-shots` branch (force-pushed, never on main). Needs: phone unlocked once, Developer options → Stay awake + Disable permission monitoring (OnePlus) for taps/settings.
+- 2026-11-09 — **D4 CLOSED — not a sign defect.** From the phone (72 Mbit/s link, −22 dBm): 1400 B pings 15 ms avg (box: 0.7–9.7 s), 300 kB sink POST 374 kB/s (box: 3.5 kB/s), real firmware upload 1.14 MB in **12.7 s** → hub rebooted to app1 and marked valid; `ota_nodes` skipped all 9 (up to date). Root cause was the box's ath10k card (rate control stuck at 1 Mbit/s TX, power-save on). Box-side uploads should go through the phone, or the box card needs fixing before using `ota_rollout.sh`.
 - 2026-11-09 — **First full 10-board OTA rollout: 9/9 nodes updated in 3 min (19–24 s each), zero failures**; all 10 boards on `3a47849` (buildId `9834d06f`).
 - 2026-11-09 — Owner defect: 10 × `{happy}` cut off at the 9th face. Cause: the 60-char limit counted raw bytes (`{happy}` = 7), and truncation split the 9th token into literal "HAP". Fix (`504aa3e`, `9a8f920`): limit is **60 display units** (a symbol = 1), raw text up to 200 B, `signClip()` never splits a token, SignState blob v3 with v2→v3 migration, serial JSON line 512 B. Host test `tools/seq_test/clip_test.cpp`. Verified on hardware: 10 faces = 10 units, one group, every board renders char 13.
 - 2026-11-09 — Defect found during deploy: after a hub **reinstall** (table wiped) running nodes never re-HELLO, so they were invisible (no cards, no OTA). Fix `3a47849`: hub **adopts** a node from its heartbeat's saved position when that position is free. Verified: all 9 re-registered at their own positions within seconds of the hub install.
