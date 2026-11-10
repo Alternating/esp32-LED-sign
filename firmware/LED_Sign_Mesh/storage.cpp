@@ -96,7 +96,7 @@ void saveNodePos(uint8_t pos) {
 
 // Step-3 blob layout, frozen. Never change this struct: it is what a v1 board has in flash.
 struct SignStateV1 {
-  char     text[SIGN_TEXT_MAX + 1];
+  char     text[61];               // literal: frozen, independent of SIGN_TEXT_MAX
   uint8_t  r, g, b;
   bool     rainbow;
   uint8_t  bri;
