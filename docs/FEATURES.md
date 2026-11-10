@@ -4,7 +4,9 @@ A wireless, battery-powered, multi-board LED sign. Each board is a 20×20 WS2812
 
 ![The 10-board sign](images/sign_10_boards.jpg)
 
-▶ **Video walkthrough with narration:** https://www.youtube.com/watch?v=DiyBTvzq21I
+[![Video: Esp32 - led signs - esp-now (2:30)](images/video_thumb.jpg)](https://www.youtube.com/watch?v=DiyBTvzq21I)
+
+▶ **[Esp32 - led signs - esp-now](https://www.youtube.com/watch?v=DiyBTvzq21I)** (2:30) — narrated walkthrough: setting a message from the phone, symbols, word groups and effects on the 10-board sign.
 
 All screenshots below are from a real phone (OnePlus 7 Pro, Chrome) connected to the hub's Wi-Fi.
 

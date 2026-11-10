@@ -4,7 +4,9 @@ Battery-powered 20×20 LED boards, each with its own ESP32, that work together a
 
 ![10 boards showing GO ☺ TEAM ☺ GO](docs/images/sign_10_boards.jpg)
 
-▶ **Video walkthrough (owner narration):** https://www.youtube.com/watch?v=DiyBTvzq21I
+[![Video: Esp32 - led signs - esp-now (2:30)](docs/images/video_thumb.jpg)](https://www.youtube.com/watch?v=DiyBTvzq21I)
+
+▶ **[Esp32 - led signs - esp-now](https://www.youtube.com/watch?v=DiyBTvzq21I)** (2:30) — narrated walkthrough: setting a message from the phone, symbols, word groups and effects on the 10-board sign.
 
 <p>
 <img src="docs/images/ui_message.jpg" width="200" alt="Message tab">
