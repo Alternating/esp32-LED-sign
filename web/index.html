@@ -331,6 +331,12 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
     return { groups: groups, truncated: truncated };
   }
   function unitText(u) { return typeof u === 'string' ? u : (GLYPH[u.sym] || '?'); }
+  // Board card: the hub reports a symbol as its token ("{happy}") -> show the same glyph as the preview chips
+  function charGlyph(c) {
+    if (!c || c === ' ') return '(blank)';
+    var m = /^\{([a-z]+)\}$/.exec(c);
+    return m && GLYPH[m[1]] ? GLYPH[m[1]] : c;
+  }
   function groupText(g) { var t = ''; for (var i = 0; i < g.length; i++) t += unitText(g[i]); return t; }
 
   function renderGroupsPreview() {
@@ -522,7 +528,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       var hb = hubBuild(), fwd = el('div', 'info');
       if (b.fw) fwd.appendChild(el('span', 'badge fw' + (hb && b.fw !== hb ? ' bad' : ''), 'fw ' + b.fw));
       card.appendChild(fwd);
-      card.appendChild(el('div', 'chr', 'char: ' + (b['char'] ? b['char'] : '(blank)')));
+      card.appendChild(el('div', 'chr', 'char: ' + charGlyph(b['char'])));
       var act = el('div', 'actions');
       var idb = el('button', 'btn secondary', 'Identify');
       idb.onclick = function () { sendCmd({ cmd: 'identify', pos: b.pos, ms: 10000 }, function (d) { if (d && d.ok) toast('Identifying board ' + b.pos, true); }); };
