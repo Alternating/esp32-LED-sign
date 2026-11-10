@@ -25,6 +25,7 @@ Battery-powered 20×20 LED boards, each with its own ESP32, that work together a
 **→ Full feature tour with screenshots: [`docs/FEATURES.md`](docs/FEATURES.md)**
 
 **→ Build a board (parts with links, matrix, wiring, 3D-printed battery hanger, photos): [`docs/HARDWARE_ASSEMBLY.md`](docs/HARDWARE_ASSEMBLY.md)**
+(one-page checklist: [`docs/HOWTO_build_a_board.md`](docs/HOWTO_build_a_board.md))
 
 Engineering docs: [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) (architecture, protocol) · [`Progress.md`](Progress.md) (log, decisions) · `docs/reviews/` (verification reports).
 
@@ -36,6 +37,7 @@ docs/
   FEATURES.md             feature tour with screenshots
   images/                 photos and phone UI screenshots (hardware/ = build photos)
   HARDWARE_ASSEMBLY.md    build one board: parts, matrix, wiring, battery hanger
+  HOWTO_build_a_board.md  one-page build + add-to-sign checklist
   PROJECT_PLAN.md         the plan (review this first)
   research/               ESP-NOW feasibility + mobile app research reports (with sources)
   HARDWARE_README_v3.md   original single-ESP32 project guide (legacy; parts/battery info still useful)
@@ -52,8 +54,8 @@ hardware/
 A **dedicated board**, not whichever powers on first. The hub role is a flag saved in that board's flash (NVS); every other board, including freshly flashed ones, defaults to **node**. Label the hub sign ("HUB / 1").
 
 - Current hub: MAC `9C:9C:1F:E3:CE:54`. It is always position **1** and runs the `LEDSIGN-HUB` Wi-Fi that phones join.
-- Power-on order only numbers the **nodes**: first node powered after the hub gets 2, the next 3, … Positions stick by MAC until cleared (hub K3 long-press ≥ 3 s, or **Reset order** in the Boards tab), then power the boards on again in the order you want.
-- To make a different board the hub: hold **K4 while applying power** (~3 s) → it shows "H" and saves the role; flip the old hub back the same way (shows "N"). Boards without buttons: send `H`/`N` over serial in the first 3 s after reset. Only one hub should be powered at a time.
+- Power-on order only numbers the **nodes**: first node powered after the hub gets 2, the next 3, … Positions stick by MAC until cleared with **Reset order** in the Boards tab, then power the boards on again in the order you want.
+- To make a different board the hub: USB-install `LED_Sign_HUB_install.bin` on it and `LED_Sign_NODE_install.bin` on the old hub (or send `H`/`N` over serial in the first 3 s after reset). Only one hub should be powered at a time. (Boards fitted with the optional K1–K4 buttons can also toggle the role by holding K4 at power-on.)
 ## Firmware: wired install once, then over the air forever
 Build: `esp32:esp32:lolin32:PartitionScheme=min_spiffs` (two 1.9 MB app slots for OTA). One source tree builds one program; the **role is pre-seeded in the settings partition** of the install images so a board is a hub or a node from its very first boot. `tools/make_images.sh` (build box) writes `build_id.h`, compiles, and puts the images in `release/<commit>/` with a README and SHA256SUMS:
 
@@ -69,7 +71,7 @@ Build: `esp32:esp32:lolin32:PartitionScheme=min_spiffs` (two 1.9 MB app slots fo
 
 **Rollback:** a freshly updated board must run healthy for 30 s (hub: running with its Wi-Fi up; node: on the radio channel and joined/discovering) before the new image is confirmed. If it resets before that — crash, watchdog, or a power cycle — the bootloader starts the previous image on that **one** reset. A failed node download never touches the running image. There is no wired "app-only update" image any more (with two app slots an app-only write at `0x10000` can hit the wrong slot).
 
-**Mirrored board** (letters appear backwards because the LED data line enters from the other side): Boards tab → that board's card → **Flip**. Or hold **K1 while applying power** (shows "E"), or serial `m`. The flag is saved on that board. Re-numbering after a NODE install: the hub remembers the board's MAC, so it gets its old position back unless you reset the order.
+**Mirrored board** (letters appear backwards because the LED data line enters from the other side): Boards tab → that board's card → **Flip** (or serial `m`). The flag is saved on that board. Re-numbering after a NODE install: the hub remembers the board's MAC, so it gets its old position back unless you reset the order.
 
 ## Status and roadmap
 **Working today (10 real boards):** phone control over the hub's Wi-Fi, ESP-NOW to every board, plug-and-play numbering, word sequencing, symbols, effects, Rainbow Bands / Rainbow Flow, Identify / Flip, and over-the-air updates with rollback. Build log and decisions: [`Progress.md`](Progress.md).

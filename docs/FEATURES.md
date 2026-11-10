@@ -89,7 +89,6 @@ Message, colour, effects, word speed, board count, Wi-Fi name, roles, positions 
 | 6 V 6 Ah LiFePO4 with BMS + USB charging | power, ~80 min at 25 % brightness |
 | XL4015 buck converter → 5 V | LED + ESP32 supply |
 | 10 000 µF capacitor | inrush / colour-change stability |
-| Optional 4-button board | standalone control, role/mirror gestures |
 
 **Build guide with parts links, wiring and photos: [`HARDWARE_ASSEMBLY.md`](HARDWARE_ASSEMBLY.md)** (3D-printed battery hanger in `hardware/`).
 

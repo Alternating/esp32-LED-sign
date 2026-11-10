@@ -1,5 +1,7 @@
 # Hardware assembly — one board
 
+Quick version: [`HOWTO_build_a_board.md`](HOWTO_build_a_board.md) (one-page checklist).
+
 Every board in the sign is built the same way and stands alone: a 20×20 WS2812B matrix on foam board, its own LOLIN32, its own LiFePO4 battery and its own 5 V buck converter. There are **no cables between boards**, and the hub is an ordinary board that gets the HUB firmware image. Build one board, test it, then repeat for as many boards as you want (10 tested).
 
 Ported from the original single-controller project ([Alternating/8board-esp32-ledproject](https://github.com/Alternating/8board-esp32-ledproject)) and adapted to this design. That project ran 5–8 matrices from one ESP32 with one data wire per board; that wiring (and its GPIO 5/16/17/… pin table) does **not** apply here.
@@ -15,8 +17,8 @@ Ported from the original single-controller project ([Alternating/8board-esp32-le
 
 | Part | Qty / board | Notes | Product used |
 |---|---|---|---|
-| **LOLIN32** (ESP32-WROOM-32) | 1 | controller; one firmware for hub and nodes | LOLIN32 / Wemos LOLIN32 board |
-| **WS2812B 5 V strip, 60 LED/m** | 400 LEDs (20 × 20) | 5 V version, WS2812B, white PCB | [Amazon — WS2812B](https://www.amazon.com/dp/B01CDTEJBG) (custom 10 m reels direct from BTF-Lighting) |
+| **LOLIN32** (ESP32-WROOM-32) | 1 | controller; powered through its **JST battery connector** from the 5 V rail | LOLIN32 / Wemos LOLIN32 board |
+| **WS2812B 5 V strip, 60 LED/m** | 400 LEDs (20 × 20) — **one 10 m reel per board** | 5 V version, WS2812B, white PCB | custom **10 m** reels direct from BTF-Lighting (same strip as [Amazon — WS2812B](https://www.amazon.com/dp/B01CDTEJBG)) |
 | **LiFePO4 6 V 6 Ah**, BMS + USB charging, F1 terminals | 1 | one battery per board | [Amazon — LiFePO4 2-pack](https://www.amazon.com/dp/B0D6YJ1RK6) |
 | **XL4015 buck converter** (5 A, adjustable) | 1 | set to 5.0 V **before** connecting anything | [Amazon — XL4015 10-pack](https://www.amazon.com/dp/B0D9JQBQYJ) |
 | **10 000 µF 25 V electrolytic capacitor** | 1 | across the 5 V output — stops brown-outs on big colour changes | any 10 000 µF ≥ 16 V |
@@ -27,9 +29,8 @@ Ported from the original single-controller project ([Alternating/8board-esp32-le
 | **Dupont connectors** | — | ESP32 header connections | [Amazon — Dupont kit](https://www.amazon.com/IWISS-1550PCS-Connector-Headers-Balancer/dp/B08X6C7PZM/) |
 | **White foam board** 20″ × 30″ | 1 sheet | matrix backing | [Walmart — foam board](https://www.walmart.com/ip/Pen-Gear-White-Foam-Board-20-x-30/5347546821) |
 | **3D-printed battery hanger** | 1 | `hardware/battery_hanger_-_led_sign_v4.stl` | PLA or PETG, ~50 g |
-| 4-button board (K1–K4) | optional | standalone control and power-on gestures | — |
 
-**Strip length:** 400 LEDs at 60 LED/m is **6.7 m per board**, so one 6 m reel (360 LEDs) is not quite enough for one board — use a custom-length reel or plan offcuts across boards. A 10-board sign needs 4 000 LEDs (~67 m).
+**Strip length:** 400 LEDs at 60 LED/m is **6.7 m per board**, so the build uses one **10 m reel** (600 LEDs) per board; the ~3.3 m left over covers mistakes and repairs. A 6 m reel (360 LEDs) is not enough for a board.
 
 **Must-haves** (from the original build): 5 V strips (not 12 V), WS2812B chipset, a battery with a built-in BMS, the XL4015 (not an LM2596), and 18 AWG for the 5 V power run.
 
@@ -57,15 +58,13 @@ Ported from the original single-controller project ([Alternating/8board-esp32-le
 ```
  LiFePO4 6 V ──F1 lugs──► XL4015  IN+ / IN−
                           OUT+ (5.0 V) ──┬── 10 000 µF (+) ──┬── LED matrix +5 V
-                                         │                   └── LOLIN32 5 V
+                                         │                   └── LOLIN32 JST battery connector (+)
                           OUT− ──────────┴── 10 000 µF (−) ──┬── LED matrix GND
-                                                             └── LOLIN32 GND   (common ground!)
+                                                             └── LOLIN32 JST battery connector (−)   (common ground!)
 
  LOLIN32 GPIO 4 ──[470 Ω]──► LED DIN (first LED, top-right from the front)
 
- optional buttons (to GND, internal pull-ups):
-   K1 GPIO 17   K2 GPIO 16   K3 GPIO 18   K4 GPIO 19
- LOLIN32 on-board status LED: GPIO 5
+ No buttons are needed: the role comes from the install image and Flip is set from the phone.
 ```
 
 **Set the XL4015 first** (full procedure: [`XL4015_SETUP_GUIDE.md`](XL4015_SETUP_GUIDE.md)):
@@ -75,7 +74,9 @@ Ported from the original single-controller project ([Alternating/8board-esp32-le
 4. Now connect the capacitor (mind polarity), the matrix and the LOLIN32.
 5. First power-up at low brightness; the XL4015 should be warm, not hot.
 
-**All grounds must be common**: battery −, XL4015 OUT−, capacitor −, matrix GND and LOLIN32 GND. A missing ESP32 ground is the usual cause of random flicker.
+**LOLIN32 power through the battery connector** (as built on all 10 boards): run a lead from the 5 V rail to the LOLIN32's JST battery socket. That socket is meant for a 1-cell LiPo, so **check the lead's polarity against the + mark on the board** (JST leads are not wired consistently) and keep the XL4015 at 5.0 V — the board's 3.3 V regulator is fed from this input and has little headroom above 5 V.
+
+**All grounds must be common**: battery −, XL4015 OUT−, capacitor −, matrix GND and LOLIN32 battery-connector −. A missing ESP32 ground is the usual cause of random flicker.
 
 Capacitor details and placement: [`CAPACITOR_GUIDE.md`](CAPACITOR_GUIDE.md).
 
