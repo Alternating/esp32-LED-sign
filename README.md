@@ -57,6 +57,8 @@ A **dedicated board**, not whichever powers on first. The hub role is a flag sav
 - Power-on order only numbers the **nodes**: first node powered after the hub gets 2, the next 3, … Positions stick by MAC until cleared with **Reset order** in the Boards tab, then power the boards on again in the order you want.
 - To make a different board the hub: USB-install `LED_Sign_HUB_install.bin` on it and `LED_Sign_NODE_install.bin` on the old hub (or send `H`/`N` over serial in the first 3 s after reset). Only one hub should be powered at a time. (Boards fitted with the optional K1–K4 buttons can also toggle the role by holding K4 at power-on.)
 ## Firmware: wired install once, then over the air forever
+**Download:** ready-to-flash images are on the [Releases page](https://github.com/Alternating/esp32-LED-sign/releases) (latest: **v0.4.0**). To build them yourself:
+
 Build: `esp32:esp32:lolin32:PartitionScheme=min_spiffs` (two 1.9 MB app slots for OTA). One source tree builds one program; the **role is pre-seeded in the settings partition** of the install images so a board is a hub or a node from its very first boot. `tools/make_images.sh` (build box) writes `build_id.h`, compiles, and puts the images in `release/<commit>/` with a README and SHA256SUMS:
 
 | file | goes to | how | effect |

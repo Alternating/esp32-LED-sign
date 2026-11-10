@@ -58,7 +58,7 @@ Wired install ONCE per board (USB, erases saved settings: positions, message):
 Every update after that is over the air (keeps role, positions, message):
   LED_Sign_ota.bin           -> phone: join the sign's Wi-Fi, Settings -> Firmware -> choose this file -> Upload to hub.
                                 The hub reboots into it; then press "Update all boards" and the hub updates
-                                every node, one at a time (~30 s each).
+                                every node, one at a time (~20 s each).
                                 From a computer on the sign's Wi-Fi: curl -F "file=@LED_Sign_ota.bin" http://192.168.4.1/ota
                                 then: curl -d '{"cmd":"ota_nodes"}' http://192.168.4.1/cmd
 Rollback: a new image must run healthy for 30 s; if the board resets before that, it boots the previous image.

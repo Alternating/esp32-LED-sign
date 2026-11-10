@@ -21,3 +21,11 @@ python3 tools/serial_capture.py /dev/ttyUSB0 12 H     # reset, set role HUB, cap
 python3 tools/serial_capture.py /dev/ttyUSB1 12 N
 ```
 Runtime console: hub `r` reset order, `i` identify all, `t<text>` test string, `s` status, `m` mirror; node `c` claim, `f` forget, `s`.
+
+## Cutting a release (firmware pack)
+1. Bump `FW_VERSION_STR` in `firmware/LED_Sign_Mesh/config.h` if the firmware changed, commit, push.
+2. Box: `tools/make_images.sh` → `release/<commit>/`. Ship `LED_Sign_ota.bin` from the phone and **Update all boards**; confirm every board shows the new build.
+3. Write `docs/releases/v<version>.md` (what's new, downloads, install, known issues), commit, push.
+4. Box: `git pull && tools/release_pack.sh <version>` (dry run: checks checksums, version + build id in every image, firmware unchanged since the build, HEAD pushed, tag unused) → `dist/v<version>/`.
+5. Box: `tools/release_pack.sh <version> --publish` → tag + GitHub release with the three images, `SHA256SUMS`, `INSTALL.txt` and a zip.
+6. Update README "latest" line and `Progress.md`.
