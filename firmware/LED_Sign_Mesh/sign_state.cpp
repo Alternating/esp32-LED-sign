@@ -2,7 +2,15 @@
 #include <string.h>
 #include <ctype.h>
 
-const SignState SIGN_DEFAULT = { "HI", 0, 255, 0, false, 100, FX_STATIC, 500, 0, 2000, SEQ_WORDS, 0 };
+const SignState SIGN_DEFAULT = { "HI", 0, 255, 0, false, 100, FX_STATIC, 500, 0, 2000, SEQ_WORDS, 0, FLOW_OFF };
+
+static const char* const FLOW_NAMES[] = { "off", "down", "up", "right", "left", "diag" };
+const char* flowName(uint8_t f) { return f <= FLOW_DIAG ? FLOW_NAMES[f] : "off"; }
+int8_t flowFromName(const char* n) {
+  if (!n) return -1;
+  for (int8_t i = 0; i <= FLOW_DIAG; i++) if (!strcmp(n, FLOW_NAMES[i])) return i;
+  return -1;
+}
 
 struct SymbolEntry { const char* name; char code; };
 static const SymbolEntry SYMBOLS[] = {

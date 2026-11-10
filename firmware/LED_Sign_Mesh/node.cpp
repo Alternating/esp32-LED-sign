@@ -527,7 +527,8 @@ void render() {
     case NodeState::RUNNING:
       if (showChar && (s.h.flags & FLAG_BANDS)) {
         CRGB lvl = display::styled(255, 255, 255, s.brightness, s.effect, s.effectPeriodMs, hubNow());
-        display::renderCharBands(showChar, lvl.r);
+        display::renderCharBands(showChar, lvl.r, (s.h.flags & FLAG_FLOW_MASK) >> FLAG_FLOW_SHIFT,
+                                 (int32_t)(myPos - 1) * MATRIX_WIDTH, hubNow(), s.effectPeriodMs);
       } else if (showChar) display::renderChar(showChar, hubColor);
       else display::clear();
       if (showChar != renderedChar) {

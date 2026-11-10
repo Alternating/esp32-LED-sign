@@ -119,7 +119,8 @@ struct SignStateV2 {
   uint8_t  mode;
 };
 static_assert(sizeof(SignStateV2) == 76, "frozen v2 layout");
-static_assert(sizeof(SignState) == 216, "v3/v4 layout (see sign_state.h); v4 adds `bands` in the tail padding");
+static_assert(sizeof(SignState) == 218, "v5 layout (see sign_state.h)");
+static constexpr size_t SIGN_V34_SIZE = 216;   // v3/v4 blob payload: SignState up to and including `bands`
 
 static void clampSign(SignState& s) {
   s.text[SIGN_TEXT_MAX] = 0;
@@ -131,6 +132,7 @@ static void clampSign(SignState& s) {
   if (s.wordPeriodMs < 500 || s.wordPeriodMs > 10000) s.wordPeriodMs = 2000;
   if (s.mode > SEQ_RAW) s.mode = SEQ_WORDS;
   if (s.bands > 1 || s.rainbow) s.bands = 0;
+  if (s.flow > FLOW_DIAG || !s.bands) s.flow = FLOW_OFF;
 }
 
 bool loadSign(SignState& s) {
@@ -143,10 +145,12 @@ bool loadSign(SignState& s) {
   bool migrated = false;
   if (got == 1 + sizeof(SignState) && buf[0] == SIGN_BLOB_VER) {
     memcpy(&s, buf + 1, sizeof(SignState));
-  } else if (got == 1 + sizeof(SignState) && buf[0] == 3) {     // v3: same layout, `bands` byte was padding
-    memcpy(&s, buf + 1, sizeof(SignState));
-    s.bands = 0;
-    Serial.println("[STORAGE] sign blob migrated v3->v4 (bands off)");
+  } else if (got == 1 + SIGN_V34_SIZE && (buf[0] == 3 || buf[0] == 4)) {   // v3/v4: prefix of v5
+    s = SIGN_DEFAULT;
+    memcpy(&s, buf + 1, SIGN_V34_SIZE);
+    if (buf[0] == 3) s.bands = 0;                       // v3: `bands` byte was padding
+    s.flow = FLOW_OFF;
+    Serial.printf("[STORAGE] sign blob migrated v%u->v5\n", (unsigned)buf[0]);
     migrated = true;
   } else if (got == 1 + sizeof(SignStateV2) && buf[0] == 2) {
     SignStateV2 v2; memcpy(&v2, buf + 1, sizeof(v2));

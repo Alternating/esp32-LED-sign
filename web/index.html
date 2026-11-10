@@ -141,6 +141,19 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       <div class="swatch rainbow" data-rainbow="1" title="Rainbow (colour cycle)"></div>
       <div class="swatch bands" data-bands="1" title="Rainbow bands (stripes across all boards)"></div>
     </div>
+    <div id="flowRow" style="display:none">
+      <label>Rainbow Flow <span class="hint">(moves the bands across the whole sign; speed slider below)</span></label>
+      <div class="segments" id="flowSegments">
+        <div class="segment active" data-flow="off">Still</div>
+        <div class="segment" data-flow="down">Down</div>
+        <div class="segment" data-flow="up">Up</div>
+      </div>
+      <div class="segments" id="flowSegments2" style="margin-top:6px">
+        <div class="segment" data-flow="right">Right</div>
+        <div class="segment" data-flow="left">Left</div>
+        <div class="segment" data-flow="diag">Diagonal</div>
+      </div>
+    </div>
     <input type="color" id="colorPicker" value="#00FF00">
     <label for="briSlider">Brightness <span id="briVal" class="value">100%</span></label>
     <input type="range" id="briSlider" min="0" max="100" value="100">
@@ -415,7 +428,19 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
   };
 
   // ---------- look ----------
+  function markFlow(name) {
+    each(all('#flowRow .segment'), function (x) { x.classList.toggle('active', x.getAttribute('data-flow') === (name || 'off')); });
+  }
+  function showFlow(on) { $('flowRow').style.display = on ? '' : 'none'; }
+  each(all('#flowRow .segment'), function (seg) {
+    seg.onclick = function () {
+      var name = seg.getAttribute('data-flow');
+      markFlow(name);
+      sendCmd({ cmd: 'flow', dir: name }, applyReplyLook);
+    };
+  });
   function markSwatch(hex, rainbow, bands) {
+    showFlow(!!bands);
     each(all('.swatch'), function (s) {
       var on = bands ? !!s.getAttribute('data-bands')
              : rainbow ? !!s.getAttribute('data-rainbow') : (s.getAttribute('data-hex') === hex);
@@ -434,6 +459,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       if (d.color !== undefined) S.cfg.color = d.color;
       if (d.rainbow !== undefined) S.cfg.rainbow = d.rainbow;
       if (d.bands !== undefined) S.cfg.bands = d.bands;
+      if (d.flow !== undefined) S.cfg.flow = d.flow;
       if (d.bri !== undefined) S.cfg.bri = d.bri;
       if (d.briEff !== undefined) S.cfg.briEff = d.briEff;
       if (d.fx !== undefined) S.cfg.fx = d.fx;
@@ -442,6 +468,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
     if (d.bri !== undefined) briLabel(d.bri, d.briEff);
     if (d.fx !== undefined) markFx(d.fx);
     if (d.rainbow !== undefined || d.color !== undefined) markSwatch(d.color, d.rainbow, d.bands);
+    if (d.flow !== undefined) markFlow(d.flow);
   }
   each(all('.swatch'), function (s) {
     s.onclick = function () {
@@ -689,6 +716,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       if (cp !== document.activeElement) cp.value = '#' + cfg.color;
     }
     markSwatch(cfg.color, !!cfg.rainbow, !!cfg.bands);
+    markFlow(cfg.flow);
     if (Date.now() - briTouched > 1500) { $('briSlider').value = cfg.bri; briLabel(cfg.bri, cfg.briEff); }
     markFx(cfg.fx);
     if (Date.now() - speedTouched > 1500) { $('speedSlider').value = cfg.speed; $('speedVal').textContent = cfg.speed + ' ms'; }

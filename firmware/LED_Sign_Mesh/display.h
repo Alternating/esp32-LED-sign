@@ -30,7 +30,9 @@ void fill(CRGB color);
 CRGB    styled(uint8_t r, uint8_t g, uint8_t b, uint8_t bri, uint8_t effect, uint16_t periodMs, uint32_t hubNowMs);
 // Rainbow bands: glyph pixels coloured by ROW (red/orange/yellow/green/blue/purple top->bottom), so the stripes
 // line up across every board. `scale` = brightness/effect level 0..255 (styled() of white, red channel).
-void    renderCharBands(char c, uint8_t scale);
+// flow (SignFlow) moves the bands in sign-wide coordinates: x0 = this board's left edge in the whole sign
+// ((pos-1)*20), nowMs = hub clock, periodMs = speed slider (one pixel step every periodMs/5 ms).
+void    renderCharBands(char c, uint8_t scale, uint8_t flow = 0, int32_t x0 = 0, uint32_t nowMs = 0, uint16_t periodMs = 500);
 
 uint8_t pulseLevel();                                // 0..255 slow breathing scale for DISCOVER/UNASSIGNED
 CRGB    scaled(CRGB c, uint8_t scale);               // c.nscale8(scale), returns a copy

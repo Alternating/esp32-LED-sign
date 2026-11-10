@@ -55,14 +55,34 @@ void renderChar(char c, CRGB color, bool mir) {
 static const CRGB BANDS[6] = { CRGB(255, 0, 0), CRGB(255, 70, 0), CRGB(255, 190, 0),
                                CRGB(0, 200, 0), CRGB(0, 0, 255), CRGB(130, 0, 200) };
 
-void renderCharBands(char c, uint8_t scale) {
+// Six bands per 20-pixel cycle (as tall as the static flag). u = coordinate along the flow axis in sign pixels.
+static inline CRGB bandAt(int32_t u, uint8_t scale) {
+  int32_t m = u % MATRIX_HEIGHT; if (m < 0) m += MATRIX_HEIGHT;
+  CRGB col = BANDS[m * 6 / MATRIX_HEIGHT];
+  col.nscale8(scale);
+  return col;
+}
+
+void renderCharBands(char c, uint8_t scale, uint8_t flow, int32_t x0, uint32_t nowMs, uint16_t periodMs) {
   const bool* p = getCharacterPattern(c);
   if (!p) { clear(); return; }
+  uint32_t stepMs = periodMs / 5; if (stepMs < 20) stepMs = 20;
+  int32_t s = flow ? (int32_t)((nowMs / stepMs) % (MATRIX_HEIGHT * 1000)) : 0;   // pixels moved, hub-clock synced
   for (int row = 0; row < MATRIX_HEIGHT; row++) {
-    CRGB col = BANDS[row * 6 / MATRIX_HEIGHT];
-    col.nscale8(scale);
-    for (int c2 = 0; c2 < MATRIX_WIDTH; c2++)
-      leds[ledIndex(row, c2, mirror)] = p[row * MATRIX_WIDTH + c2] ? col : CRGB::Black;
+    for (int c2 = 0; c2 < MATRIX_WIDTH; c2++) {
+      int i = ledIndex(row, c2, mirror);
+      if (!p[row * MATRIX_WIDTH + c2]) { leds[i] = CRGB::Black; continue; }
+      int32_t x = x0 + c2, u;
+      switch (flow) {
+        case 1:  u = row - s;     break;   // down: bands travel top -> bottom
+        case 2:  u = row + s;     break;   // up
+        case 3:  u = x - s;       break;   // right: board 1 -> board 10
+        case 4:  u = x + s;       break;   // left
+        case 5:  u = x + row - s; break;   // diagonal: towards bottom-right
+        default: u = row;         break;   // still bands
+      }
+      leds[i] = bandAt(u, scale);
+    }
   }
 }
 

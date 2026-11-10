@@ -25,6 +25,8 @@ constexpr uint8_t FLAG_NEEDS_ACK = 0x01;
 constexpr uint8_t FLAG_IS_RETRY  = 0x02;
 constexpr uint8_t FLAG_PERIODIC  = 0x04;
 constexpr uint8_t FLAG_BANDS     = 0x08;   // Show: colour glyphs in horizontal rainbow bands (row-based, same on every board)
+constexpr uint8_t FLAG_FLOW_SHIFT = 4;     // Show: bits 4..6 = Rainbow Flow direction (SignFlow, 0 = still)
+constexpr uint8_t FLAG_FLOW_MASK  = 0x70;
 
 struct Hdr {            // 8 bytes
   uint8_t  magic, ver, type;

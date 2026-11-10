@@ -29,6 +29,7 @@ static void echoSign(const SignState& s, JsonDocument& reply) {
   reply["color"] = hex;
   reply["rainbow"] = s.rainbow;
   reply["bands"] = s.bands != 0;
+  reply["flow"] = flowName(s.flow);
   reply["bri"] = s.bri;
   reply["briEff"] = signBriEff(s);
   reply["fx"] = fxName(s.effect);
@@ -74,12 +75,27 @@ static bool cmdColor(JsonDocument& cmd, JsonDocument& reply) {
     s.bands = 1; s.rainbow = false;
     if (s.effect == FX_CYCLE) s.effect = FX_STATIC;
   } else if (cmd["rainbow"].is<bool>() && cmd["rainbow"].as<bool>()) {
-    s.rainbow = true; s.bands = 0; s.effect = FX_CYCLE;
+    s.rainbow = true; s.bands = 0; s.flow = FLOW_OFF; s.effect = FX_CYCLE;
   } else {
     uint8_t r, g, b;
     if (!parseHex(str(cmd, "hex"), r, g, b)) return fail(reply, "bad_arg");
     s.r = r; s.g = g; s.b = b;
-    s.rainbow = false; s.bands = 0;
+    s.rainbow = false; s.bands = 0; s.flow = FLOW_OFF;
+    if (s.effect == FX_CYCLE) s.effect = FX_STATIC;
+  }
+  hub::applySign(s);
+  echoSign(s, reply);
+  return true;
+}
+
+// ---- flow: dir off|down|up|right|left|diag — Rainbow Flow (moving bands); any dir but off turns bands on ----
+static bool cmdFlow(JsonDocument& cmd, JsonDocument& reply) {
+  int8_t f = flowFromName(str(cmd, "dir"));
+  if (f < 0) return fail(reply, "bad_arg");
+  SignState s = hub::sign();
+  s.flow = (uint8_t)f;
+  if (f != FLOW_OFF) {
+    s.bands = 1; s.rainbow = false;
     if (s.effect == FX_CYCLE) s.effect = FX_STATIC;
   }
   hub::applySign(s);
@@ -113,7 +129,7 @@ static bool cmdFx(JsonDocument& cmd, JsonDocument& reply) {
   }
   s.effect = (uint8_t)fx;
   s.rainbow = (fx == FX_CYCLE);
-  if (s.rainbow) s.bands = 0;
+  if (s.rainbow) { s.bands = 0; s.flow = FLOW_OFF; }
   hub::applySign(s);
   echoSign(s, reply);
   return true;
@@ -243,6 +259,7 @@ bool handle(JsonDocument& cmd, JsonDocument& reply, bool isHub) {
   if (!strcmp(c, "reset_order")) { hub::onResetOrd(); return true; }
   if (!strcmp(c, "forget"))      return cmdForget(cmd, reply);
   if (!strcmp(c, "mirror"))      return cmdMirror(cmd, reply);
+  if (!strcmp(c, "flow"))        return cmdFlow(cmd, reply);
   if (!strcmp(c, "name"))        return cmdName(cmd, reply);
   if (!strcmp(c, "save"))        { hub::saveNow(); return true; }
   if (!strcmp(c, "ota_nodes"))   return cmdOtaNodes(cmd, reply);
