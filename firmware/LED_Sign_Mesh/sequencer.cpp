@@ -21,7 +21,7 @@ void Sequencer::rebuild(const SignState& s, uint8_t numBoards) {
   count_ = 0; cur_ = 0; truncated_ = false;
   uint8_t nb = numBoards < 1 ? 1 : (numBoards > MAX_BOARDS ? MAX_BOARDS : numBoards);
 
-  char units[SIGN_TEXT_MAX];
+  char units[SIGN_UNITS_MAX];
   uint8_t n = signUnits(s.text, units);
 
   if (s.mode == SEQ_RAW) {                                  // one group: the first nb units

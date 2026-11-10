@@ -11,8 +11,10 @@
 #include <Arduino.h>
 #include "config.h"
 
-#define SIGN_TEXT_MAX   60
-#define SIGN_BLOB_VER   2          // 1 = step 3 (no wordPeriodMs/mode), 2 = step 2 sequencer fields
+#define SIGN_UNITS_MAX  60         // message limit in DISPLAY units: a {token} like {happy} counts as ONE
+#define SIGN_TEXT_MAX   200        // raw bytes stored (60 units of the longest token "{diamond}" would be 540;
+                                   // 200 bytes covers e.g. 28 {happy} — far beyond 10 boards x 20 groups of use)
+#define SIGN_BLOB_VER   3          // 1 = step 3, 2 = step 2 sequencer fields, 3 = text[201] (raw text no longer capped at 60)
 
 enum SignFx   : uint8_t { FX_STATIC = 0, FX_BLINK = 1, FX_FADE = 2, FX_CYCLE = 3 };
 enum SignMode : uint8_t { SEQ_WORDS = 0, SEQ_RAW = 1 };   // raw = one char per position (step-3 behaviour)
@@ -28,7 +30,7 @@ struct SignState {
   uint16_t wordPeriodMs;             // 500..10000, default 2000 (v2)
   uint8_t  mode;                     // SignMode (v2)
 };
-static_assert(sizeof(SignState) == 76, "SignState layout is the NVS blob layout; add a SignStateVn migration if this changes");
+static_assert(sizeof(SignState) == 216, "SignState layout is the NVS blob layout; add a SignStateVn migration if this changes");
 
 extern const SignState SIGN_DEFAULT;
 
@@ -38,9 +40,14 @@ uint8_t signBriEff(const SignState& s);                  // bri * cap / 100
 
 // Tokenise the text into display units, one byte per unit: {token} -> symbol code (1..14),
 // everything else uppercased (spaces stay ' '). Unknown {xyz} passes through literally.
-// out holds at most SIGN_TEXT_MAX units; returns the unit count. Shared by signLayout() and
+// out holds at most SIGN_UNITS_MAX units; returns the unit count. Shared by signLayout() and
 // the word sequencer so the raw layout, the groups and the web preview agree.
-uint8_t signUnits(const char* text, char out[SIGN_TEXT_MAX]);
+uint8_t signUnits(const char* text, char out[SIGN_UNITS_MAX]);
+
+// Normalise user text for storage: uppercase outside {tokens}, copy whole units only (a known {token}
+// is never split), stop at SIGN_UNITS_MAX units or SIGN_TEXT_MAX bytes. out must hold SIGN_TEXT_MAX+1.
+// Returns the unit count; *truncated = input did not fit.
+uint8_t signClip(const char* in, char out[SIGN_TEXT_MAX + 1], bool* truncated);
 
 // Lay the text out one char per position (SEQ_RAW): the first MAX_BOARDS units, zero-filled.
 // Returns the number of positions used.

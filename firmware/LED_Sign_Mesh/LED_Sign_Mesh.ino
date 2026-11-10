@@ -97,7 +97,7 @@ static void runTextLine(const char* text) {       // t<text> = msg alias
 
 // ---------------- serial console (non-blocking line buffer) ----------------
 enum class Collect : uint8_t { NONE, TEXT, JSON, POS };
-static char lineBuf[256];
+static char lineBuf[512];       // fits a full 200-byte message in a JSON line
 static uint16_t lineLen = 0;
 static Collect collecting = Collect::NONE;
 

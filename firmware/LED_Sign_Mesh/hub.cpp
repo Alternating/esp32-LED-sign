@@ -839,7 +839,7 @@ void begin() {
                 live.text, live.r, live.g, live.b, live.bri, fxName(live.effect), live.effectPeriodMs, live.boards,
                 live.wordPeriodMs, modeName(live.mode));
   if (migrated) {
-    Serial.println("[HUB] sign blob migrated v1->v2 (wordPeriodMs=2000, mode=words), rewriting");
+    Serial.println("[HUB] sign blob migrated to v3, rewriting");
     dirtyAt = 1;                                 // saved as v2 on the first tick
   }
   relayout(live.boards ? live.boards : highestOwned(), false);   // first heartbeat carries group 0

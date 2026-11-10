@@ -46,30 +46,23 @@ static void putGroups(const SignState& s, JsonDocument& reply) {
   reply["truncated"] = sq.truncated();
 }
 
-// ---- msg: uppercase outside {tokens}, <= 60 chars; reply predicts the word groups ----
+// ---- msg: uppercase outside {tokens}, <= 60 DISPLAY units ({happy} = 1); reply predicts the word groups ----
 static bool cmdMsg(JsonDocument& cmd, JsonDocument& reply) {
   const char* txt = str(cmd, "text");
   if (!txt) return fail(reply, "bad_arg");
   SignState s = hub::sign();
-  size_t n = strlen(txt);
-  bool truncated = n > SIGN_TEXT_MAX;
-  if (truncated) n = SIGN_TEXT_MAX;
-  bool inTok = false;
-  for (size_t i = 0; i < n; i++) {
-    char c = txt[i];
-    if (c == '{') inTok = true; else if (c == '}') inTok = false;
-    s.text[i] = inTok ? c : (char)toupper((unsigned char)c);
-  }
-  s.text[n] = 0;
+  bool truncated = false;
+  uint8_t units = signClip(txt, s.text, &truncated);
   char chars[MAX_BOARDS];
   uint8_t used = signLayout(s, chars);
   hub::applySign(s);
   reply["text"] = s.text;
   reply["chars"] = used;                 // raw one-per-position count (UI char counter)
+  reply["units"] = units;                // message length in display units (limit SIGN_UNITS_MAX)
   reply["boards"] = hub::numBoardsEffective();
   reply["mode"] = modeName(s.mode);
   putGroups(s, reply);
-  if (truncated) reply["note"] = "truncated to 60 chars";
+  if (truncated) reply["note"] = "truncated to 60 characters (a symbol counts as one)";
   return true;
 }
 
