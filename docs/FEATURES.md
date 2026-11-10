@@ -2,6 +2,10 @@
 
 A wireless, battery-powered, multi-board LED sign. Each board is a 20×20 WS2812B matrix (400 LEDs) with its own ESP32 (LOLIN32) and its own 6 V LiFePO4 battery — **no data cables between boards**. One board is the **hub**; the others are **nodes**. The hub hosts the phone UI over its own Wi-Fi and drives every node over **ESP-NOW**. Proven on **10 boards**.
 
+![The 10-board sign](images/sign_10_boards.jpg)
+
+▶ **Video walkthrough with narration:** https://www.youtube.com/watch?v=DiyBTvzq21I
+
 All screenshots below are from a real phone (OnePlus 7 Pro, Chrome) connected to the hub's Wi-Fi.
 
 ---

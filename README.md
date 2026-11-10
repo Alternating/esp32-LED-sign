@@ -2,6 +2,10 @@
 
 Battery-powered 20×20 LED boards, each with its own ESP32, that work together as one sign with **no cables between boards**. One board is the hub: phones join its Wi-Fi and control the whole sign from a web page; the hub drives the other boards over ESP-NOW. Built and tested with **10 boards**.
 
+![10 boards showing GO ☺ TEAM ☺ GO](docs/images/sign_10_boards.jpg)
+
+▶ **Video walkthrough (owner narration):** https://www.youtube.com/watch?v=DiyBTvzq21I
+
 <p>
 <img src="docs/images/ui_message.jpg" width="200" alt="Message tab">
 <img src="docs/images/ui_look_rainbow_flow.jpg" width="200" alt="Look tab — Rainbow Flow">
