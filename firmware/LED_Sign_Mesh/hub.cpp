@@ -315,6 +315,25 @@ static void onHello(const uint8_t* mac, uint8_t nvsPos, bool claim, int8_t rssi,
   scheduleBurst();          // late joiner lights up right away
 }
 
+// A RUNNING node never re-HELLOs, so after a hub reinstall (table wiped) it would stay invisible: no Boards
+// card, no OTA, no unicast. Its HB carries its saved position (srcPos): adopt it when that position is free.
+// A MAC already in the table, or a position owned by another MAC, is left alone (HELLO/CLAIM rules decide).
+static void adoptFromHb(const uint8_t* mac, uint8_t pos) {
+  bool adopted = false;
+  portENTER_CRITICAL(&tMux);
+  if (findMac(mac) < 0 && !owned(pos)) {
+    int slot = freeSlot();
+    if (slot >= 0) { memcpy(table[slot].mac, mac, 6); table[slot].pos = pos; memset(&info[pos], 0, sizeof(BoardInfo)); adopted = true; }
+  }
+  portEXIT_CRITICAL(&tMux);
+  if (!adopted) return;
+  radio::addPeer(mac);
+  persistTable();
+  char ms[18]; radio::macToStr(mac, ms);
+  Serial.printf("[HUB] adopted %s at pos %d from HB (table had lost it)\n", ms, pos);
+  scheduleBurst();
+}
+
 static void onForget(const uint8_t* mac) {
   char ms[18]; radio::macToStr(mac, ms);
   bool changed = false; uint8_t pos = 0;
@@ -613,6 +632,7 @@ void handlePacket(const uint8_t* srcMac, const uint8_t* buf, uint8_t len, int8_t
         uint8_t p = h->srcPos;
         uint8_t bid[4] = {0, 0, 0, 0};
         if (len >= sizeof(Hb)) memcpy(bid, hb->buildId, 4);
+        if (p >= 2 && p <= MAX_BOARDS) adoptFromHb(srcMac, p);   // re-register a running node the table lost
         if (p >= 1 && p <= MAX_BOARDS) {
           portENTER_CRITICAL(&tMux);
           BoardInfo& bi = info[p];

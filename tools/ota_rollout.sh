@@ -24,6 +24,7 @@ join() {
   sudo ip link set "$IF" up
   sudo wpa_supplicant -B -i "$IF" -c "$CONF" -P /run/wpa_ota.pid >/dev/null 2>&1 || true
   sudo ip addr replace "$ME/24" dev "$IF"
+  command -v iw >/dev/null && sudo iw dev "$IF" set power_save off 2>/dev/null   # PS on the box card made uploads crawl
   command -v resolvectl >/dev/null && sudo resolvectl default-route "$IF" no 2>/dev/null
   for i in $(seq 30); do ping -c1 -W1 -I "$IF" $HUB >/dev/null 2>&1 && { echo "== joined LEDSIGN-HUB via $IF"; return 0; }; sleep 1; done
   echo "!! could not reach $HUB"; return 1
@@ -34,7 +35,7 @@ jq_py() { python3 -c "import sys,json; d=json.load(sys.stdin); $1" 2>/dev/null; 
 join || exit 1
 echo "== hub before: $(state | jq_py 'o=d["ota"]["hub"]; print(o["buildId"], o["git"], o["slot"], "valid" if o["valid"] else "pending")')"
 echo "== uploading $BIN ($(stat -c %s "$BIN") B)"
-t0=$(date +%s); curl -s -m 120 --interface "$IF" -F "file=@$BIN" http://$HUB/ota; echo; echo "== upload took $(( $(date +%s)-t0 )) s; hub rebooting"
+t0=$(date +%s); curl -s -m 600 --interface "$IF" -F "file=@$BIN" http://$HUB/ota; echo; echo "== upload took $(( $(date +%s)-t0 )) s; hub rebooting"
 sleep 8
 sudo kill "$(cat /run/wpa_ota.pid)" 2>/dev/null; sudo rm -f /run/wpa_ota.pid; sleep 2; join || exit 1
 for i in $(seq 60); do v=$(state | jq_py 'print(1 if d["ota"]["hub"]["valid"] else 0)'); [ "$v" = 1 ] && break; sleep 2; done
