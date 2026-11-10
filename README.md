@@ -1,14 +1,32 @@
-# LED Sign — 10-Board ESP-NOW Mesh
+# ESP32 LED Sign — wireless multi-board WS2812B sign
 
-Up to 10 battery-powered 20×20 WS2812B boards, each with its own ESP32. One board is the hub (phone connects to it); the hub drives the rest over ESP-NOW. Boards are powered on one at a time and display their position number while registering, then each shows one character of the message.
+Battery-powered 20×20 LED boards, each with its own ESP32, that work together as one sign with **no cables between boards**. One board is the hub: phones join its Wi-Fi and control the whole sign from a web page; the hub drives the other boards over ESP-NOW. Built and tested with **10 boards**.
 
-**Start here:** [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) — architecture, protocol, roadmap. Status and decisions: [`Progress.md`](Progress.md).
+<p>
+<img src="docs/images/ui_message.jpg" width="200" alt="Message tab">
+<img src="docs/images/ui_look_rainbow_flow.jpg" width="200" alt="Look tab — Rainbow Flow">
+<img src="docs/images/ui_boards.jpg" width="200" alt="Boards tab">
+<img src="docs/images/ui_update_in_progress.jpg" width="200" alt="Over-the-air update in progress">
+</p>
+
+**Highlights**
+- Phone control via captive portal — no app; works on iPhone and Android.
+- Messages with symbols (♥ ★ ✓ ✗ arrows ◆ ● ☺ ☹), automatic word grouping and live preview, word changes synchronised across boards (~8 ms skew).
+- Colours, Blink/Fade/Cycle, **Rainbow Bands** (stripes line up across the sign) and **Rainbow Flow** (bands move Down/Up/Right/Left/Diagonal across the whole sign).
+- Plug-and-play board numbering by power-on order, remembered across restarts; Identify, Flip (mirrored boards), live per-board status.
+- **Over-the-air updates**: upload to the hub from the phone, then "Update all boards" — 10 boards in ~3 minutes, with automatic rollback.
+
+**→ Full feature tour with screenshots: [`docs/FEATURES.md`](docs/FEATURES.md)**
+
+Engineering docs: [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) (architecture, protocol) · [`Progress.md`](Progress.md) (log, decisions) · `docs/reviews/` (verification reports).
 
 ## Layout
 ```
 README.md                 this file
 Progress.md               status log, decisions, open questions
 docs/
+  FEATURES.md             feature tour with screenshots
+  images/                 phone UI screenshots
   PROJECT_PLAN.md         the plan (review this first)
   research/               ESP-NOW feasibility + mobile app research reports (with sources)
   HARDWARE_README_v3.md   single-board hardware guide, parts list, battery/power wiring
