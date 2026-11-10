@@ -250,7 +250,7 @@ void saveNow() { dirtyAt = 1; }
 // scheduled = the armed next group (applyAtHubMs = applyAt, nextSeq); else the applied group (0, dispSeq).
 static void sendShow(bool periodic, bool scheduled) {
   Show s;
-  s.h = makeHdr(SHOW, MY_POS, POS_ALL, periodic ? FLAG_PERIODIC : 0);
+  s.h = makeHdr(SHOW, MY_POS, POS_ALL, (periodic ? FLAG_PERIODIC : 0) | (live.bands ? FLAG_BANDS : 0));
   s.hubMillis = millis();
   s.applyAtHubMs = scheduled ? applyAt : 0;
   s.showSeq = scheduled ? nextSeq : dispSeq;
@@ -782,6 +782,7 @@ void buildState(JsonObject root) {
   char hex[7]; snprintf(hex, sizeof(hex), "%02X%02X%02X", s.r, s.g, s.b);
   cfg["color"] = hex;
   cfg["rainbow"] = s.rainbow;
+  cfg["bands"] = s.bands != 0;
   cfg["bri"] = s.bri;
   cfg["briEff"] = signBriEff(s);
   cfg["fx"] = fxName(s.effect);
@@ -958,6 +959,11 @@ void render() {
     if (c >= 32) Serial.printf("[HUB] render '%c'\n", c); else Serial.printf("[HUB] render code %d\n", c);
   }
   if (c == 0) { display::clear(); return; }
+  if (live.bands) {
+    CRGB lvl = display::styled(255, 255, 255, signBriEff(live), live.effect, live.effectPeriodMs, millis());
+    display::renderCharBands(c, lvl.r);
+    return;
+  }
   CRGB col = display::styled(live.r, live.g, live.b, signBriEff(live), live.effect, live.effectPeriodMs, millis());
   display::renderChar(c, col);
 }

@@ -525,7 +525,11 @@ void render() {
       else          display::renderDigit(myPos, hubColor);
       break;
     case NodeState::RUNNING:
-      if (showChar) display::renderChar(showChar, hubColor); else display::clear();
+      if (showChar && (s.h.flags & FLAG_BANDS)) {
+        CRGB lvl = display::styled(255, 255, 255, s.brightness, s.effect, s.effectPeriodMs, hubNow());
+        display::renderCharBands(showChar, lvl.r);
+      } else if (showChar) display::renderChar(showChar, hubColor);
+      else display::clear();
       if (showChar != renderedChar) {
         renderedChar = showChar;
         if (showChar >= 32) Serial.printf("[NODE] render '%c'\n", showChar);

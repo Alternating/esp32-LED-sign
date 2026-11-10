@@ -119,7 +119,7 @@ struct SignStateV2 {
   uint8_t  mode;
 };
 static_assert(sizeof(SignStateV2) == 76, "frozen v2 layout");
-static_assert(sizeof(SignState) == 216, "v3 layout (see sign_state.h)");
+static_assert(sizeof(SignState) == 216, "v3/v4 layout (see sign_state.h); v4 adds `bands` in the tail padding");
 
 static void clampSign(SignState& s) {
   s.text[SIGN_TEXT_MAX] = 0;
@@ -130,6 +130,7 @@ static void clampSign(SignState& s) {
   s.rainbow = (s.effect == FX_CYCLE);
   if (s.wordPeriodMs < 500 || s.wordPeriodMs > 10000) s.wordPeriodMs = 2000;
   if (s.mode > SEQ_RAW) s.mode = SEQ_WORDS;
+  if (s.bands > 1 || s.rainbow) s.bands = 0;
 }
 
 bool loadSign(SignState& s) {
@@ -142,6 +143,11 @@ bool loadSign(SignState& s) {
   bool migrated = false;
   if (got == 1 + sizeof(SignState) && buf[0] == SIGN_BLOB_VER) {
     memcpy(&s, buf + 1, sizeof(SignState));
+  } else if (got == 1 + sizeof(SignState) && buf[0] == 3) {     // v3: same layout, `bands` byte was padding
+    memcpy(&s, buf + 1, sizeof(SignState));
+    s.bands = 0;
+    Serial.println("[STORAGE] sign blob migrated v3->v4 (bands off)");
+    migrated = true;
   } else if (got == 1 + sizeof(SignStateV2) && buf[0] == 2) {
     SignStateV2 v2; memcpy(&v2, buf + 1, sizeof(v2));
     s = SIGN_DEFAULT;

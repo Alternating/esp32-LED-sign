@@ -28,6 +28,9 @@ void fill(CRGB color);
 // calls. bri is the already-capped 0..100 value carried in Show.brightness; hubNowMs is the
 // hub clock so every board is in phase. effect: 0 static, 1 blink, 2 fade (30-100 %), 3 cycle.
 CRGB    styled(uint8_t r, uint8_t g, uint8_t b, uint8_t bri, uint8_t effect, uint16_t periodMs, uint32_t hubNowMs);
+// Rainbow bands: glyph pixels coloured by ROW (red/orange/yellow/green/blue/purple top->bottom), so the stripes
+// line up across every board. `scale` = brightness/effect level 0..255 (styled() of white, red channel).
+void    renderCharBands(char c, uint8_t scale);
 
 uint8_t pulseLevel();                                // 0..255 slow breathing scale for DISCOVER/UNASSIGNED
 CRGB    scaled(CRGB c, uint8_t scale);               // c.nscale8(scale), returns a copy

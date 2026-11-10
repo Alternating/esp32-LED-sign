@@ -2,7 +2,7 @@
 #include <string.h>
 #include <ctype.h>
 
-const SignState SIGN_DEFAULT = { "HI", 0, 255, 0, false, 100, FX_STATIC, 500, 0, 2000, SEQ_WORDS };
+const SignState SIGN_DEFAULT = { "HI", 0, 255, 0, false, 100, FX_STATIC, 500, 0, 2000, SEQ_WORDS, 0 };
 
 struct SymbolEntry { const char* name; char code; };
 static const SymbolEntry SYMBOLS[] = {
@@ -43,6 +43,7 @@ int modeFromName(const char* name) {
 
 uint8_t signCap(const SignState& s) {
   if (s.rainbow || s.effect == FX_CYCLE) return 70;
+  if (s.bands) return 80;                               // bands: every colour uses <= 2 channels
   int ch = (s.r >= 64) + (s.g >= 64) + (s.b >= 64);
   return ch >= 3 ? 60 : ch == 2 ? 80 : 100;
 }

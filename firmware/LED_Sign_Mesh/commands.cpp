@@ -28,6 +28,7 @@ static void echoSign(const SignState& s, JsonDocument& reply) {
   char hex[7]; snprintf(hex, sizeof(hex), "%02X%02X%02X", s.r, s.g, s.b);
   reply["color"] = hex;
   reply["rainbow"] = s.rainbow;
+  reply["bands"] = s.bands != 0;
   reply["bri"] = s.bri;
   reply["briEff"] = signBriEff(s);
   reply["fx"] = fxName(s.effect);
@@ -69,13 +70,16 @@ static bool cmdMsg(JsonDocument& cmd, JsonDocument& reply) {
 // ---- color: hex "RRGGBB" (optional '#') or rainbow:true ----
 static bool cmdColor(JsonDocument& cmd, JsonDocument& reply) {
   SignState s = hub::sign();
-  if (cmd["rainbow"].is<bool>() && cmd["rainbow"].as<bool>()) {
-    s.rainbow = true; s.effect = FX_CYCLE;
+  if (cmd["bands"].is<bool>() && cmd["bands"].as<bool>()) {      // rainbow bands inside the letters
+    s.bands = 1; s.rainbow = false;
+    if (s.effect == FX_CYCLE) s.effect = FX_STATIC;
+  } else if (cmd["rainbow"].is<bool>() && cmd["rainbow"].as<bool>()) {
+    s.rainbow = true; s.bands = 0; s.effect = FX_CYCLE;
   } else {
     uint8_t r, g, b;
     if (!parseHex(str(cmd, "hex"), r, g, b)) return fail(reply, "bad_arg");
     s.r = r; s.g = g; s.b = b;
-    s.rainbow = false;
+    s.rainbow = false; s.bands = 0;
     if (s.effect == FX_CYCLE) s.effect = FX_STATIC;
   }
   hub::applySign(s);
@@ -109,6 +113,7 @@ static bool cmdFx(JsonDocument& cmd, JsonDocument& reply) {
   }
   s.effect = (uint8_t)fx;
   s.rainbow = (fx == FX_CYCLE);
+  if (s.rainbow) s.bands = 0;
   hub::applySign(s);
   echoSign(s, reply);
   return true;

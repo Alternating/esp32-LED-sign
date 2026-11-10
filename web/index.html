@@ -45,6 +45,7 @@ input[type="color"] { height: 44px; padding: 4px; margin-top: 8px; }
 .swatch { width: 40px; height: 40px; border-radius: 50%; cursor: pointer; border: 2px solid #2d2d2d; box-shadow: 0 0 0 1px #555; touch-action: manipulation; }
 .swatch.active { box-shadow: 0 0 0 3px #007bff; }
 .swatch.rainbow { background: linear-gradient(135deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f); background: conic-gradient(#f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.swatch.bands { background: linear-gradient(180deg, #e40303 0 16.6%, #ff8c00 16.6% 33.3%, #ffed00 33.3% 50%, #008026 50% 66.6%, #004dff 66.6% 83.3%, #750787 83.3% 100%); }
 .segments { display: flex; gap: 4px; }
 .segment { flex: 1; padding: 10px 4px; background: #3d3d3d; border-radius: 4px; text-align: center; cursor: pointer; border: 1px solid #444; font-size: 14px; touch-action: manipulation; }
 .segment.active { background: #007bff; color: #fff; border-color: #007bff; }
@@ -137,7 +138,8 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       <div class="swatch" data-hex="00FFFF" style="background:#00FFFF" title="Cyan"></div>
       <div class="swatch" data-hex="FF00FF" style="background:#FF00FF" title="Magenta"></div>
       <div class="swatch" data-hex="FFFFFF" style="background:#FFFFFF" title="White"></div>
-      <div class="swatch rainbow" data-rainbow="1" title="Rainbow"></div>
+      <div class="swatch rainbow" data-rainbow="1" title="Rainbow (colour cycle)"></div>
+      <div class="swatch bands" data-bands="1" title="Rainbow bands (stripes across all boards)"></div>
     </div>
     <input type="color" id="colorPicker" value="#00FF00">
     <label for="briSlider">Brightness <span id="briVal" class="value">100%</span></label>
@@ -413,9 +415,10 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
   };
 
   // ---------- look ----------
-  function markSwatch(hex, rainbow) {
+  function markSwatch(hex, rainbow, bands) {
     each(all('.swatch'), function (s) {
-      var on = rainbow ? !!s.getAttribute('data-rainbow') : (s.getAttribute('data-hex') === hex);
+      var on = bands ? !!s.getAttribute('data-bands')
+             : rainbow ? !!s.getAttribute('data-rainbow') : (s.getAttribute('data-hex') === hex);
       s.classList.toggle('active', on);
     });
   }
@@ -430,6 +433,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
     if (S.cfg) {
       if (d.color !== undefined) S.cfg.color = d.color;
       if (d.rainbow !== undefined) S.cfg.rainbow = d.rainbow;
+      if (d.bands !== undefined) S.cfg.bands = d.bands;
       if (d.bri !== undefined) S.cfg.bri = d.bri;
       if (d.briEff !== undefined) S.cfg.briEff = d.briEff;
       if (d.fx !== undefined) S.cfg.fx = d.fx;
@@ -437,11 +441,14 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
     }
     if (d.bri !== undefined) briLabel(d.bri, d.briEff);
     if (d.fx !== undefined) markFx(d.fx);
-    if (d.rainbow !== undefined || d.color !== undefined) markSwatch(d.color, d.rainbow);
+    if (d.rainbow !== undefined || d.color !== undefined) markSwatch(d.color, d.rainbow, d.bands);
   }
   each(all('.swatch'), function (s) {
     s.onclick = function () {
-      if (s.getAttribute('data-rainbow')) {
+      if (s.getAttribute('data-bands')) {
+        markSwatch(null, false, true);
+        sendCmd({ cmd: 'color', bands: true }, applyReplyLook);
+      } else if (s.getAttribute('data-rainbow')) {
         markSwatch(null, true);
         sendCmd({ cmd: 'color', rainbow: true }, applyReplyLook);
       } else {
@@ -681,7 +688,7 @@ pre#log { margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 6px
       var cp = $('colorPicker');
       if (cp !== document.activeElement) cp.value = '#' + cfg.color;
     }
-    markSwatch(cfg.color, !!cfg.rainbow);
+    markSwatch(cfg.color, !!cfg.rainbow, !!cfg.bands);
     if (Date.now() - briTouched > 1500) { $('briSlider').value = cfg.bri; briLabel(cfg.bri, cfg.briEff); }
     markFx(cfg.fx);
     if (Date.now() - speedTouched > 1500) { $('speedSlider').value = cfg.speed; $('speedVal').textContent = cfg.speed + ' ms'; }

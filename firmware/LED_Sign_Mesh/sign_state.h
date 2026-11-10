@@ -14,7 +14,7 @@
 #define SIGN_UNITS_MAX  60         // message limit in DISPLAY units: a {token} like {happy} counts as ONE
 #define SIGN_TEXT_MAX   200        // raw bytes stored (60 units of the longest token "{diamond}" would be 540;
                                    // 200 bytes covers e.g. 28 {happy} — far beyond 10 boards x 20 groups of use)
-#define SIGN_BLOB_VER   3          // 1 = step 3, 2 = step 2 sequencer fields, 3 = text[201] (raw text no longer capped at 60)
+#define SIGN_BLOB_VER   4          // 1 = step 3, 2 = step 2 sequencer fields, 3 = text[201], 4 = bands (same size, uses tail padding)
 
 enum SignFx   : uint8_t { FX_STATIC = 0, FX_BLINK = 1, FX_FADE = 2, FX_CYCLE = 3 };
 enum SignMode : uint8_t { SEQ_WORDS = 0, SEQ_RAW = 1 };   // raw = one char per position (step-3 behaviour)
@@ -29,6 +29,7 @@ struct SignState {
   uint8_t  boards;                   // pinned numBoards, 0 = auto (highest owned position)
   uint16_t wordPeriodMs;             // 500..10000, default 2000 (v2)
   uint8_t  mode;                     // SignMode (v2)
+  uint8_t  bands;                    // 1 = rainbow bands inside the glyphs (v4); exclusive with rainbow/cycle
 };
 static_assert(sizeof(SignState) == 216, "SignState layout is the NVS blob layout; add a SignStateVn migration if this changes");
 

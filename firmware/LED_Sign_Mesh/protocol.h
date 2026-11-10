@@ -24,6 +24,7 @@ enum OtaWireState : uint8_t { OTA_ST_JOINING = 0, OTA_ST_DOWNLOADING = 1, OTA_ST
 constexpr uint8_t FLAG_NEEDS_ACK = 0x01;
 constexpr uint8_t FLAG_IS_RETRY  = 0x02;
 constexpr uint8_t FLAG_PERIODIC  = 0x04;
+constexpr uint8_t FLAG_BANDS     = 0x08;   // Show: colour glyphs in horizontal rainbow bands (row-based, same on every board)
 
 struct Hdr {            // 8 bytes
   uint8_t  magic, ver, type;

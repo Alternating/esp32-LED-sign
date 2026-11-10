@@ -51,6 +51,21 @@ void renderChar(char c, CRGB color, bool mir) {
       leds[ledIndex(row, col, mir)] = p[row * MATRIX_WIDTH + col] ? color : CRGB::Black;
 }
 
+// 6 flag colours, tuned for WS2812 (orange/yellow need less green than sRGB)
+static const CRGB BANDS[6] = { CRGB(255, 0, 0), CRGB(255, 70, 0), CRGB(255, 190, 0),
+                               CRGB(0, 200, 0), CRGB(0, 0, 255), CRGB(130, 0, 200) };
+
+void renderCharBands(char c, uint8_t scale) {
+  const bool* p = getCharacterPattern(c);
+  if (!p) { clear(); return; }
+  for (int row = 0; row < MATRIX_HEIGHT; row++) {
+    CRGB col = BANDS[row * 6 / MATRIX_HEIGHT];
+    col.nscale8(scale);
+    for (int c2 = 0; c2 < MATRIX_WIDTH; c2++)
+      leds[ledIndex(row, c2, mirror)] = p[row * MATRIX_WIDTH + c2] ? col : CRGB::Black;
+  }
+}
+
 void renderDigit(uint8_t pos, CRGB color) {
   char c;
   if (pos >= 1 && pos <= 9) c = (char)('0' + pos);
